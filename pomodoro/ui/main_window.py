@@ -33,7 +33,7 @@ class MainWindow(Gtk.Window):
         style(self.header, "titlebar-custom")
         self.header.set_show_close_button(True)
         self.header.set_title(TITLE)
-        self.compact_button = button("⤡  Modo compacto", "btn-secondary", tooltip="Modo compacto (em breve)",
+        self.compact_button = button("⤡  Modo compacto", "btn-secondary", tooltip="Janela pequena, sempre à vista",
                                      on_click=on_compact or (lambda: None))
         self.compact_button.set_sensitive(on_compact is not None)
         self.header.pack_end(self.compact_button)

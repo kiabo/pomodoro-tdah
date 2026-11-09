@@ -140,8 +140,9 @@ def build_today(repo, day, query="", group_id=None, only_task_id=None):
     )
 
 
-def next_focus(view, active_task_id, active_subtask_id):
-    """Título do que vem depois no foco: a próxima subtarefa pendente, senão a próxima tarefa."""
+def next_focus_item(view, active_task_id, active_subtask_id):
+    """O que vem depois no foco: (título, previsão em min ou None). Primeiro a próxima subtarefa pendente
+    da tarefa em foco, depois a próxima tarefa pendente; (None, None) se não há mais nada."""
     tasks = view.visible_tasks
     active = next((t for t in tasks if t.id == active_task_id), None)
     if active:
@@ -152,9 +153,14 @@ def next_focus(view, active_task_id, active_subtask_id):
                 after = active.subtasks[ids.index(active_subtask_id) + 1:]
                 pending = [s for s in after if not s.done] or pending
         if pending:
-            return pending[0].title
+            return pending[0].title, pending[0].estimate_min
     candidates = [t for t in tasks if not t.done and t.id != active_task_id]
     if active:
         later = tasks[tasks.index(active) + 1:]
         candidates = [t for t in later if not t.done] or candidates
-    return candidates[0].title if candidates else None
+    return (candidates[0].title, candidates[0].estimate_min) if candidates else (None, None)
+
+
+def next_focus(view, active_task_id, active_subtask_id):
+    """Só o título do que vem depois no foco (ver next_focus_item)."""
+    return next_focus_item(view, active_task_id, active_subtask_id)[0]

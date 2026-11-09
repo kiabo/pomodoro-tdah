@@ -35,6 +35,8 @@ class Controller:
         # Estimador de tempo (Fase 8). Precisa de suggest_estimate(repo, title, group_id, user_estimate_min)
         # -> {"minutes": int, "note": str} | None e suggest_subtasks(repo, title, group_id) -> [(título, min)].
         self.estimator = None
+        self.last_alert = None          # dados do último alerta de hiperfoco (para o modo compacto)
+        self.last_pomodoro = None       # dados do último pomodoro concluído (para "como foi?")
 
         self.timer = PomodoroTimer(self.settings, self._on_tick, self._on_phase_change, scheduler=scheduler)
         self.tracker = Tracker(self.repo, self.timer, lambda: self.settings, on_alert=self._on_alert)
@@ -68,7 +70,19 @@ class Controller:
         self._emit("phase")
 
     def _on_timer_event(self, name, **data):
-        if name == "warning":
+        if name == "started" and self.timer.phase == Phase.WORK:
+            self._emit("started")
+        elif name == "phase_ended" and data["phase"] == Phase.WORK and data["completed"] \
+                and data["reason"] in ("auto", "skip"):
+            task_id = self.tracker.active_task_id
+            task = self.repo.get_task(task_id) if task_id else None
+            self.last_pomodoro = {
+                "task_id": task_id, "subtask_id": self.tracker.active_subtask_id,
+                "title": task["title"] if task else None, "seconds": data["seconds"],
+                "number": self.pomodoros_today(),
+            }
+            self._emit("pomodoro-done")
+        elif name == "warning":
             minutes = max(data["remaining"] // 60, 1)
             self._notify(f"Faltam {minutes} min para o fim do foco")
         elif name == "overtime":
@@ -83,6 +97,8 @@ class Controller:
             est_min = round(data["estimate_seconds"] / 60)
             self._notify(f"Passou do previsto em “{title}”: {real_min} min de {est_min} min. "
                          "Vale conferir se ainda é a prioridade.")
+            self.last_alert = {"task_id": data["task_id"], "title": title, "real_seconds": data["real_seconds"],
+                               "estimate_seconds": data["estimate_seconds"]}
             self._emit("alert")
 
     def toggle_timer(self):
@@ -96,6 +112,28 @@ class Controller:
 
     def restart_session(self):
         self.timer.restart_all()
+
+    def extend_phase(self, seconds):
+        self.timer.extend(seconds)
+
+    def bump_estimate(self, task_id, minutes):
+        """Soma minutos ao previsto da tarefa (usa a soma das subtarefas se ela não tem previsão própria)."""
+        task = self.repo.get_task(task_id)
+        if task is None:
+            raise KeyError(f"tarefa {task_id} não existe")
+        base = task["estimate_min"] or self.repo.subtasks_estimate_sum(task_id) or 0
+        self.update_task(task_id, estimate_min=base + minutes)
+
+    def set_task_difficulty(self, task_id, difficulty):
+        """Registra como foi a tarefa: easy, ok ou hard (alimenta a IA)."""
+        self.repo.update_task(task_id, difficulty=difficulty)
+        self._changed()
+
+    def add_distraction(self, text):
+        """Anota um pensamento solto durante o foco, ligado à sessão e à tarefa atuais."""
+        did = self.tracker.add_distraction(text)
+        self._changed()
+        return did
 
     def focus(self, task_id, subtask_id=None):
         """Escolhe a tarefa (e subtarefa) em foco. task_id None limpa."""
@@ -135,7 +173,7 @@ class Controller:
         """
         task_id, subtask_id = self.tracker.active_task_id, self.tracker.active_subtask_id
         context = {"task_id": task_id, "task_title": None, "subtask_title": None,
-                   "estimate_min": None, "next_title": None}
+                   "estimate_min": None, "next_title": None, "next_estimate_min": None}
         task = self.repo.get_task(task_id) if task_id else None
         if task:
             context["task_title"] = task["title"]
@@ -144,7 +182,8 @@ class Controller:
             sub = self.repo.get_subtask(subtask_id) if subtask_id else None
             context["subtask_title"] = sub["title"] if sub else None
         if view is not None:
-            context["next_title"] = today_model.next_focus(view, task_id, subtask_id)
+            context["next_title"], context["next_estimate_min"] = today_model.next_focus_item(
+                view, task_id, subtask_id)
         return context
 
     def pomodoros_today(self):

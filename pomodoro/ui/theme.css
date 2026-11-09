@@ -456,3 +456,76 @@ scale.slider-opacity slider {
 .tab-bar { padding: 4px; }
 .recurring-row { background-color: #FAF7F2; border-radius: 8px; padding: 8px 10px; }
 entry.stepper-entry.stepper-small { font-size: 15px; }
+
+/* ---- modo compacto -------------------------------------------------------------- */
+
+window.compact-window {
+    background-color: transparent;
+    color: #FFFFFF;
+    font-family: "Inter", "Ubuntu Sans", "Cantarell", sans-serif;
+    font-size: 14px;
+}
+.compact-card { border-radius: 16px; padding: 14px; color: #FFFFFF; box-shadow: 0 10px 28px alpha(#000000, 0.35); }
+.compact-dark { background-color: #1F2430; }
+.compact-break { background-color: #17392C; }
+.compact-alert { background-color: #FFF6E0; border: 1.5px solid #F2B33D; color: #7A5414; }
+.compact-pill { border-radius: 24px; padding: 10px 16px; color: #FFFFFF; box-shadow: 0 8px 24px alpha(#000000, 0.3); }
+.compact-time { font-size: 40px; font-weight: 700; }
+.compact-time-sm { font-size: 17px; font-weight: 700; }
+.compact-input { background-color: #1F2430; border: 1px dashed #4A5166; border-radius: 10px; padding: 8px 10px; }
+.compact-input-field {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    color: #FFFFFF;
+    font-size: 12px;
+    padding: 0;
+    min-height: 0;
+}
+.text-break { color: #CDEFE0; }
+.text-break-muted { color: #9CC9B6; }
+.text-mint { color: #6EE7B7; }
+
+button.btn-icon-dark {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    outline-style: none;
+    color: #9AA0AE;
+    padding: 2px 6px;
+    min-width: 0;
+    min-height: 0;
+    font-weight: 400;
+}
+button.btn-icon-dark:hover { color: #FFFFFF; }
+button.btn-break-soft {
+    background-color: #22503D;
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+button.btn-break-soft:hover { background-color: shade(#22503D, 1.2); }
+button.btn-on-dark {
+    background-color: #2C3242;
+    color: #FFFFFF;
+    font-size: 12px;
+    font-weight: 400;
+    padding: 7px 8px;
+    border-radius: 8px;
+}
+button.btn-on-dark:checked { background-color: #6EE7B7; color: #17392C; font-weight: 700; }
+button.btn-on-dark:hover { background-color: #3A4050; }
+button.btn-alert-dark { background-color: #1F2430; color: #FFFFFF; font-size: 11px; padding: 7px 8px; border-radius: 8px; }
+button.btn-alert-light {
+    background-color: #FFFFFF;
+    border-color: #F2D58A;
+    color: #7A5414;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 7px 8px;
+    border-radius: 8px;
+}

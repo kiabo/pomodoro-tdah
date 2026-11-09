@@ -16,6 +16,7 @@ from gi.repository import Gtk
 
 from .. import settings as settings_store
 from ..controller import Controller
+from .compact_window import CompactWindow
 from .dialogs.new_task import NewTaskDialog
 from .main_window import MainWindow
 from .theme import load_theme, themed_window
@@ -108,7 +109,10 @@ def build_preview():
     return controller, MainWindow(controller)
 
 
-SCREENS = ("today", "editor", "new-task", "groups", "settings", "settings-compact", "settings-sound", "settings-ai")
+COMPACT_SCREENS = ("compact-focus", "compact-expanded", "compact-break", "compact-mini", "compact-alert",
+                   "compact-rating")
+SCREENS = ("today", "editor", "new-task", "groups", "settings", "settings-compact", "settings-sound",
+           "settings-ai") + COMPACT_SCREENS
 
 
 def _pump():
@@ -117,11 +121,53 @@ def _pump():
             Gtk.main_iteration()
 
 
+def prepare_compact(controller, screen):
+    """Coloca o controlador no estado de cada cartão do modo compacto e devolve a janela compacta."""
+    compact = CompactWindow(controller)
+    controller.last_alert = {"task_id": controller.tracker.active_task_id, "title": "Escrever relatório mensal",
+                             "real_seconds": 105 * 60, "estimate_seconds": 90 * 60}
+    if screen == "compact-break":
+        controller.timer.skip()
+        controller.timer.remaining = 3 * 60 + 12
+        controller.timer.phase_elapsed = 108
+        controller.timer.running = True
+    elif screen == "compact-mini":
+        compact.mini = True
+    elif screen == "compact-alert":
+        compact.alert = dict(controller.last_alert)
+    elif screen == "compact-rating":
+        compact.rating = {"task_id": controller.tracker.active_task_id, "subtask_id": None,
+                          "title": "Montar gráficos", "seconds": 25 * 60, "number": 3}
+        controller.timer.skip()
+        controller.timer.running = True
+    elif screen == "compact-expanded":
+        compact.focus_card.set_expanded(True)
+    return compact
+
+
 def render_png(path, width=1280, height=860, screen="today"):
     controller, window = build_preview()
     offscreen = Gtk.OffscreenWindow()
     themed_window(offscreen)
-    if screen == "new-task":
+    if screen in COMPACT_SCREENS:
+        compact = prepare_compact(controller, screen)
+        compact.refresh()
+        content = compact.frame
+        compact.remove(content)
+        offscreen.add(content)
+        content.set_margin_start(24)
+        content.set_margin_end(24)
+        content.set_margin_top(20)
+        content.set_margin_bottom(28)
+        backdrop = Gtk.CssProvider()
+        backdrop.load_from_data(b"window.preview-backdrop { background-color: #55607F; }")
+        Gtk.StyleContext.add_provider_for_screen(offscreen.get_screen(), backdrop,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        offscreen.get_style_context().remove_class("app-window")
+        offscreen.get_style_context().add_class("preview-backdrop")
+        offscreen.get_style_context().add_class("compact-window")
+        width, height = 420, None
+    elif screen == "new-task":
         dialog = NewTaskDialog(window, controller)
         dialog.title_entry.set_text("Preparar apresentação para o cliente")
         dialog.set_estimate(45)

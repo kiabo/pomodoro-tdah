@@ -359,6 +359,88 @@ class DataAndSoundTest(ControllerTest):
         self.assertEqual([t.title for t in view.visible_tasks], ["A"])
 
 
+class CompactSupportTest(ControllerTest):
+    def test_started_event_only_for_focus(self):
+        self.controller.toggle_timer()
+        self.assertEqual(self.events.count("started"), 1)
+        self.controller.toggle_timer()
+        self.controller.skip_phase()                                        # pausa
+        self.events.clear()
+        self.controller.toggle_timer()
+        self.assertNotIn("started", self.events)
+
+    def test_pomodoro_done_carries_the_data(self):
+        task = self.controller.add_task("Relatório", estimate_min=90)
+        self.controller.focus(task["id"])
+        self.controller.toggle_timer()
+        self.tick(25 * 60)
+        self.assertNotIn("pomodoro-done", self.events)                       # tempo extra: ainda não terminou
+        self.controller.skip_phase()
+        self.assertIn("pomodoro-done", self.events)
+        self.assertEqual(self.controller.last_pomodoro,
+                         {"task_id": task["id"], "subtask_id": None, "title": "Relatório", "seconds": 1500,
+                          "number": 1})
+
+    def test_no_pomodoro_done_when_cut_short_or_reset(self):
+        self.controller.toggle_timer()
+        self.tick(300)
+        self.controller.skip_phase()
+        self.assertNotIn("pomodoro-done", self.events)
+        self.assertIsNone(self.controller.last_pomodoro)
+        self.controller.skip_phase()                                         # volta ao foco
+        self.controller.toggle_timer()
+        self.tick(25 * 60 + 5)
+        self.controller.reset_phase()
+        self.assertNotIn("pomodoro-done", self.events)
+
+    def test_alert_data_is_kept(self):
+        task = self.controller.add_task("Relatório", estimate_min=1)
+        self.controller.focus(task["id"])
+        self.controller.toggle_timer()
+        self.tick(90)
+        self.assertEqual(self.controller.last_alert,
+                         {"task_id": task["id"], "title": "Relatório", "real_seconds": 90, "estimate_seconds": 60})
+
+    def test_bump_estimate(self):
+        task = self.controller.add_task("Relatório", estimate_min=30)
+        self.controller.bump_estimate(task["id"], 15)
+        self.assertEqual(self.controller.repo.get_task(task["id"])["estimate_min"], 45)
+        sub_only = self.controller.add_task("Só subtarefas")
+        self.controller.add_subtask(sub_only["id"], "A", 20)
+        self.controller.bump_estimate(sub_only["id"], 15)
+        self.assertEqual(self.controller.repo.get_task(sub_only["id"])["estimate_min"], 35)
+        bare = self.controller.add_task("Nada")
+        self.controller.bump_estimate(bare["id"], 15)
+        self.assertEqual(self.controller.repo.get_task(bare["id"])["estimate_min"], 15)
+        with self.assertRaises(KeyError):
+            self.controller.bump_estimate("nao-existe", 15)
+
+    def test_difficulty_and_distraction(self):
+        task = self.controller.add_task("Relatório")
+        self.controller.set_task_difficulty(task["id"], "hard")
+        self.assertEqual(self.controller.repo.get_task(task["id"])["difficulty"], "hard")
+        with self.assertRaises(ValueError):
+            self.controller.set_task_difficulty(task["id"], "impossivel")
+        self.controller.focus(task["id"])
+        self.controller.toggle_timer()
+        self.tick(5)
+        self.controller.add_distraction("ligar para o banco")
+        item = self.controller.repo.list_distractions(task_id=task["id"])[0]
+        self.assertEqual((item["text"], item["session_id"] is not None), ("ligar para o banco", True))
+
+    def test_extend_phase(self):
+        self.controller.skip_phase()
+        self.controller.extend_phase(60)
+        self.assertEqual(self.controller.timer.remaining, 6 * 60)
+
+    def test_focus_context_has_next_estimate(self):
+        a = self.controller.add_task("A", estimate_min=30)
+        self.controller.add_task("B", estimate_min=20)
+        self.controller.focus(a["id"])
+        ctx = self.controller.focus_context(self.controller.today_view())
+        self.assertEqual((ctx["next_title"], ctx["next_estimate_min"]), ("B", 20))
+
+
 class CompleteCurrentTest(ControllerTest):
     def test_subtask_then_next_pending(self):
         task = self.controller.add_task("Relatório")

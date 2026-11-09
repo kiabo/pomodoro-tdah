@@ -59,6 +59,8 @@ COLORS = {
     "break_bg2": "#22503D",
     "break_text": "#CDEFE0",
     "break_muted": "#9CC9B6",
+    # Sombras
+    "black": "#000000",
 }
 
 # Paleta de cores de grupo (a ordem é a do seletor no design).

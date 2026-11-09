@@ -13,6 +13,7 @@ from gi.repository import Gtk, AyatanaAppIndicator3 as AppIndicator3, Notify
 
 from .controller import Controller
 from .timer import PHASE_LABELS, Phase
+from .ui.compact_window import CompactWindow
 from .ui.format import format_clock
 from .ui.main_window import MainWindow
 from .ui.theme import load_theme
@@ -42,11 +43,40 @@ class PomodoroApp:
         self.indicator.set_icon_full("pomodoro-idle", "Pomodoro")
         self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
 
-        self.window = MainWindow(self.controller)
+        self.window = MainWindow(self.controller, on_compact=self.show_compact)
+        self.compact = CompactWindow(self.controller, on_expand=self.show_main, on_close=self.hide_compact,
+                                     on_adjust=self.adjust_task)
         self._build_menu()
         self._update_indicator()
         if not start_hidden:
             self.window.present_today()
+
+    # ---- alternar entre o app e o modo compacto ---------------------------
+
+    def show_compact(self):
+        self.window.hide()
+        self.compact.present_compact()
+        self._update_menu_labels()
+
+    def show_main(self):
+        self.compact.hide()
+        self.window.present_today()
+        self._update_menu_labels()
+
+    def hide_compact(self):
+        self.compact.hide()
+        self._update_menu_labels()
+
+    def toggle_compact(self):
+        if self.compact.get_visible():
+            self.hide_compact()
+        else:
+            self.show_compact()
+
+    def adjust_task(self, task_id):
+        """"Ajustar previsão" do alerta de hiperfoco: abre a tarefa no editor."""
+        self.show_main()
+        self.window.open_task_editor(task_id)
 
     # ---- ícone da bandeja -----------------------------------------------
 
@@ -59,7 +89,8 @@ class PomodoroApp:
             menu.append(item)
             return item
 
-        add("Abrir o Foco", self.window.present_today)
+        add("Abrir o Foco", self.show_main)
+        self.compact_item = add("Mostrar o modo compacto", self.toggle_compact)
         menu.append(Gtk.SeparatorMenuItem())
         self.toggle_item = add("Iniciar", self.controller.toggle_timer)
         add("Pular fase", self.controller.skip_phase)
@@ -73,6 +104,12 @@ class PomodoroApp:
     def _on_controller_event(self, kind):
         if kind in ("tick", "phase", "settings"):
             self._update_indicator()
+        elif kind == "started" and self.controller.settings["compact_on_focus_start"] and self.window.get_visible():
+            self.show_compact()         # "Ir para o compacto ao iniciar um foco"
+
+    def _update_menu_labels(self):
+        self.compact_item.set_label("Esconder o modo compacto" if self.compact.get_visible()
+                                    else "Mostrar o modo compacto")
 
     def _update_indicator(self):
         timer = self.controller.timer

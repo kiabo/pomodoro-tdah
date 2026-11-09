@@ -202,3 +202,17 @@ def cycle_summary(work_min, short_min, long_min, cycles):
     pausas = (f"{shorts} pausa{'s' if shorts != 1 else ''} curta{'s' if shorts != 1 else ''} e 1 longa"
               if shorts else "1 pausa longa")
     return f"Ciclo completo: {format_minutes(total)} · {focos}, {pausas}"
+
+
+def compact_eyebrow(phase, running, started, cycle, cycles, overtime=False):
+    """Cabeçalho do modo compacto: 'FOCO · 3 DE 4', 'PAUSADO · 3 DE 4', 'PAUSA CURTA'…"""
+    if phase == Phase.WORK:
+        state = "TEMPO EXTRA" if overtime else ("FOCO" if running else ("PAUSADO" if started else "PRONTO"))
+        return f"{state} · {cycle} DE {cycles}"
+    label = PHASE_LABELS[phase].upper()
+    return label if running else f"{label} · {'PAUSADA' if started else 'PRONTA'}"
+
+
+def next_interval_hint(interval):
+    """'Próximo: pausa curta de 5 min às 15:48' a partir de um item de PomodoroTimer.next_intervals()."""
+    return f"Próximo: {interval['label'].lower()} de {interval['seconds'] // 60} min às {interval['start']:%H:%M}"

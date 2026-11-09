@@ -271,6 +271,13 @@ class PomodoroTimer:
     def restart_all(self):
         self._restart_phase(Phase.WORK, 1, "restart")
 
+    def extend(self, seconds):
+        """Soma tempo à fase atual (ex.: "+1 min" na pausa). Valores negativos não deixam passar de zero."""
+        if seconds == 0:
+            return
+        self.remaining = max(self.remaining + seconds, 1) if seconds < 0 else self.remaining + seconds
+        self.on_tick()
+
     # ---- previsão -------------------------------------------------------
 
     def next_intervals(self, now=None, count=3):
