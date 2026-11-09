@@ -9,7 +9,8 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 gi.require_version("Notify", "0.7")
 from gi.repository import Gtk, AyatanaAppIndicator3 as AppIndicator3, Notify
 
-from . import storage
+from . import db, settings as settings_store
+from .repository import Repository
 from .timer import PomodoroTimer, Phase, PHASE_LABELS
 from .window import MainWindow
 
@@ -26,8 +27,10 @@ class PomodoroApp:
     def __init__(self):
         Notify.init("Pomodoro")
 
-        self.settings = storage.load_settings()
-        self.tasks = storage.load_tasks()
+        self.data_dir = settings_store.data_dir()
+        self.settings = settings_store.load_settings(self.data_dir)
+        self.db = db.open_database(self.data_dir)
+        self.repo = Repository(self.db)
         self.active_task_id = None
 
         self.timer = PomodoroTimer(self.settings, self.on_tick, self.on_phase_change)
@@ -112,33 +115,34 @@ class PomodoroApp:
             pass
 
     # ---- task CRUD ----------------------------------------------------
+    # Ponte para a janela antiga (lista plana). Será substituída pela UI nova (Fase 4+).
+
+    @property
+    def tasks(self):
+        return [
+            {"id": t["id"], "title": t["title"], "done": t["status"] == "done"}
+            for group in self.repo.list_groups()
+            for t in self.repo.list_tasks(group_id=group["id"], statuses=("todo", "doing", "done"))
+        ]
 
     def add_task(self, title):
-        self.tasks.append({"id": storage.new_task_id(), "title": title, "done": False})
-        storage.save_tasks(self.tasks)
+        self.repo.create_task(self.repo.default_group_id(), title)
         self.window.refresh_tasks()
 
     def edit_task(self, task_id, new_title):
-        for task in self.tasks:
-            if task["id"] == task_id:
-                task["title"] = new_title
-                break
-        storage.save_tasks(self.tasks)
+        self.repo.update_task(task_id, title=new_title)
         self.window.refresh_tasks()
 
     def delete_task(self, task_id):
-        self.tasks = [t for t in self.tasks if t["id"] != task_id]
+        self.repo.delete_task(task_id)
         if self.active_task_id == task_id:
             self.active_task_id = None
-        storage.save_tasks(self.tasks)
         self.window.refresh_tasks()
 
     def toggle_task_done(self, task_id):
-        for task in self.tasks:
-            if task["id"] == task_id:
-                task["done"] = not task.get("done", False)
-                break
-        storage.save_tasks(self.tasks)
+        task = self.repo.get_task(task_id)
+        if task is not None:
+            self.repo.set_task_status(task_id, "todo" if task["status"] == "done" else "done")
         self.window.refresh_tasks()
 
     def set_active_task(self, task_id):
@@ -149,15 +153,16 @@ class PomodoroApp:
     # ---- settings -------------------------------------------------------
 
     def apply_settings(self, new_settings):
-        self.settings = new_settings
-        storage.save_settings(self.settings)
+        # Mescla: a janela antiga só envia as 4 chaves do ciclo.
+        self.settings = settings_store.sanitize({**self.settings, **new_settings})
+        settings_store.save_settings(self.settings, self.data_dir)
         self.timer.update_settings(self.settings)
 
     # ---- lifecycle ------------------------------------------------------
 
     def quit(self, *_args):
-        storage.save_tasks(self.tasks)
-        storage.save_settings(self.settings)
+        settings_store.save_settings(self.settings, self.data_dir)
+        self.db.close()
         Gtk.main_quit()
 
     def run(self):
