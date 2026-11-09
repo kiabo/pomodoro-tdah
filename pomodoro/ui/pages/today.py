@@ -15,9 +15,12 @@ from ..widgets import QuickEntry
 
 
 class TodayPage(Gtk.Box):
-    """Emite "query-changed"(texto) quando a busca muda."""
+    """Emite "query-changed"(texto) quando a busca muda e "new-task" no botão Nova tarefa."""
 
-    __gsignals__ = {"query-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,))}
+    __gsignals__ = {
+        "query-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        "new-task": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
 
     def __init__(self, controller):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=20)
@@ -46,8 +49,8 @@ class TodayPage(Gtk.Box):
         self.search.set_icon_from_icon_name(Gtk.EntryIconPosition.PRIMARY, "edit-find-symbolic")
         self.search.connect("changed", lambda e: self.emit("query-changed", e.get_text()))
         self.search.connect("key-press-event", self._on_search_key)
-        new = button("＋  Nova tarefa", "btn-primary", tooltip="Adicionar uma tarefa (Ctrl N)",
-                     on_click=self.focus_quick_add)
+        new = button("＋  Nova tarefa", "btn-primary", tooltip="Nova tarefa com todos os detalhes (Ctrl N)",
+                     on_click=lambda: self.emit("new-task"))
         return hbox(expand(titles), self.search, new, spacing=10)
 
     def _build_kpis(self):

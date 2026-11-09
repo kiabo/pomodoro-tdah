@@ -3,8 +3,8 @@ import unittest
 from datetime import date, datetime
 
 from pomodoro.ui.format import (delta_text, format_clock, format_date_eyebrow, format_minutes,
-                                format_real, interval_text, parse_duration, phase_eyebrow,
-                                pomodoros_estimate, progress_note)
+                                describe_day, estimate_note, format_real, interval_text, parse_duration, parse_signed_minutes,
+                                phase_eyebrow, pomodoros_estimate, progress_note, session_line)
 from pomodoro.timer import Phase
 
 
@@ -88,6 +88,56 @@ class TimerTextTest(unittest.TestCase):
     def test_interval_text(self):
         item = {"label": "Pausa curta", "seconds": 300, "start": datetime(2026, 11, 9, 15, 48)}
         self.assertEqual(interval_text(item), "Pausa curta de 5 min às 15:48")
+
+
+class DescribeDayTest(unittest.TestCase):
+    def test_labels(self):
+        today = date(2026, 11, 9)
+        self.assertEqual(describe_day(today, today), "Hoje, 9 nov")
+        self.assertEqual(describe_day(date(2026, 11, 10), today), "Amanhã, 10 nov")
+        self.assertEqual(describe_day(date(2026, 11, 12), today), "qui, 12 nov")
+        self.assertEqual(describe_day(date(2026, 11, 8), today), "dom, 8 nov")
+        self.assertEqual(describe_day(date(2026, 12, 1), today), "ter, 1 dez")
+        self.assertEqual(describe_day(None, today), "Sem data")
+
+
+class EstimateNoteTest(unittest.TestCase):
+    def test_notes(self):
+        self.assertEqual(estimate_note(90, 90), ("≈ 4 pomodoros · soma das subtarefas: 1h 30m ✓", True))
+        self.assertEqual(estimate_note(90, 80), ("≈ 4 pomodoros · ⚠ as subtarefas somam 1h 20m", False))
+        self.assertEqual(estimate_note(25, None), ("≈ 1 pomodoro", True))
+        self.assertEqual(estimate_note(None, 55), ("Sem previsão própria · as subtarefas somam 55m", True))
+        self.assertTrue(estimate_note(0, None)[0].startswith("Sem previsão ainda"))
+        self.assertEqual(estimate_note(100, None, work_min=50), ("≈ 2 pomodoros", True))
+
+
+class SignedMinutesTest(unittest.TestCase):
+    def test_parse(self):
+        cases = {"+10": 10, "10": 10, "-5m": -5, "- 5": -5, "1h": 60, "-1h30": -90, " +1:30 ": 90}
+        for text, expected in cases.items():
+            self.assertEqual(parse_signed_minutes(text), expected, text)
+        for text in ("", "0", "-0", "abc", "+", "--5", None):
+            self.assertIsNone(parse_signed_minutes(text), repr(text))
+
+
+class SessionLineTest(unittest.TestCase):
+    def line(self, **kwargs):
+        session = {"kind": "work", "started_at": "2026-11-09T14:05:00", "ended_at": "2026-11-09T14:30:00",
+                   "seconds": 1500, "interrupted": 0, "subtask_title": None, "note": ""}
+        session.update(kwargs)
+        return session_line(session)
+
+    def test_kinds(self):
+        self.assertEqual(self.line(subtask_title="Levantar números"),
+                         ("14:05–14:30", "Levantar números · 25m", "normal"))
+        self.assertEqual(self.line(), ("14:05–14:30", "25m", "normal"))
+        self.assertEqual(self.line(interrupted=1, seconds=300, ended_at="2026-11-09T14:10:00"),
+                         ("14:05–14:10", "5m  ⚠ interrompido", "interrupted"))
+        self.assertEqual(self.line(ended_at=None, subtask_title="Gráficos"),
+                         ("14:05–agora", "Gráficos · em andamento", "open"))
+        self.assertEqual(self.line(kind="manual", seconds=-300, note="Ajuste manual"),
+                         ("09/11 14:05", "Ajuste manual · −5m", "manual"))
+        self.assertEqual(self.line(kind="manual", seconds=600, note="")[1], "Ajuste manual · +10m")
 
 
 class ParseDurationTest(unittest.TestCase):

@@ -19,9 +19,9 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
 | Rodar o app | `./run.sh` |
 | Todos os testes | `scripts/test.sh` (os de interface precisam de tela e do `python3-gi-cairo`) |
 | Rodar só na bandeja | `./run.sh --hidden` |
-| Ver a janela com dados de exemplo | `scripts/preview.sh` (ou `--png arquivo.png`) |
+| Ver as telas com dados de exemplo | `scripts/preview.sh [--screen editor\|new-task] [--png arquivo.png]` |
 | Galeria de componentes | `scripts/gallery.sh` (ou `--png arquivo.png`) |
-| Atalhos | `Ctrl K` busca · `Ctrl N` nova tarefa · clique direito na tarefa: menu |
+| Atalhos | `Ctrl K` busca · `Ctrl N` nova tarefa (modal) · `Ctrl Enter` cria no modal · duplo clique numa tarefa abre o editor · clique direito: menu |
 
 Terminais de apps instalados via snap (ex.: VS Code) injetam bibliotecas que derrubam o PyGObject:
 os scripts já limpam o ambiente (`scripts/_cleanenv.sh`). Fora deles, rode num terminal normal do sistema.

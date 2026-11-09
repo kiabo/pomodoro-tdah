@@ -127,3 +127,67 @@ def progress_note(real_seconds, estimate_min, running, now):
 def interval_text(interval):
     """'Pausa curta de 5 min às 15:48' a partir de um item de PomodoroTimer.next_intervals()."""
     return f"{interval['label']} de {interval['seconds'] // 60} min às {interval['start']:%H:%M}"
+
+
+def parse_signed_minutes(text):
+    """Lê um ajuste de tempo: '+10', '-5m', '1h' (positivo), '-1h30'. Inválido ou zero -> None."""
+    text = (text or "").strip().replace(" ", "")
+    sign = 1
+    if text and text[0] in "+-":
+        sign = -1 if text[0] == "-" else 1
+        text = text[1:]
+    minutes = parse_duration(text)
+    if not minutes:
+        return None
+    return sign * minutes
+
+
+def session_line(session, now=None):
+    """Linha do histórico de uma sessão: ('14:05–14:30', 'Levantar números · 25m', 'normal'|'interrupted'|'open'|'manual')."""
+    from datetime import datetime
+
+    started = datetime.fromisoformat(session["started_at"])
+    title = session.get("subtask_title")
+    if session["kind"] == "manual":
+        seconds = session["seconds"]
+        sign = "+" if seconds >= 0 else "−"
+        return f"{started:%d/%m %H:%M}", f"{session.get('note') or 'Ajuste manual'} · {sign}{format_minutes(abs(seconds) / 60)}", "manual"
+    detail = f"{title} · " if title else ""
+    if not session["ended_at"]:
+        return f"{started:%H:%M}–agora", f"{detail}em andamento", "open"
+    ended = datetime.fromisoformat(session["ended_at"])
+    kind = "interrupted" if session["interrupted"] else "normal"
+    suffix = "  ⚠ interrompido" if session["interrupted"] else ""
+    return f"{started:%H:%M}–{ended:%H:%M}", f"{detail}{format_real(session['seconds'])}{suffix}", kind
+
+
+WEEKDAYS_SHORT = ("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
+MONTHS_SHORT = ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
+
+
+def describe_day(day, today):
+    """'Hoje, 9 nov', 'Amanhã, 10 nov', 'qui, 12 nov' ou 'Sem data' (day None)."""
+    if day is None:
+        return "Sem data"
+    short = f"{day.day} {MONTHS_SHORT[day.month - 1]}"
+    delta = (day - today).days
+    if delta == 0:
+        return f"Hoje, {short}"
+    if delta == 1:
+        return f"Amanhã, {short}"
+    return f"{WEEKDAYS_SHORT[day.weekday()]}, {short}"
+
+
+def estimate_note(estimate_min, subtasks_sum, work_min=25):
+    """Nota sob o previsto: ('≈ 4 pomodoros · soma das subtarefas: 1h 30m ✓', ok). ok=False vira aviso."""
+    if not estimate_min:
+        if subtasks_sum:
+            return f"Sem previsão própria · as subtarefas somam {format_minutes(subtasks_sum)}", True
+        return "Sem previsão ainda. Estime para comparar com o tempo real.", True
+    pomodoros = pomodoros_estimate(estimate_min, work_min)
+    text = f"≈ {pomodoros} pomodoro{'s' if pomodoros != 1 else ''}"
+    if not subtasks_sum:
+        return text, True
+    if subtasks_sum == estimate_min:
+        return f"{text} · soma das subtarefas: {format_minutes(subtasks_sum)} ✓", True
+    return f"{text} · ⚠ as subtarefas somam {format_minutes(subtasks_sum)}", False

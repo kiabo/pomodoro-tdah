@@ -11,6 +11,7 @@ from gi.repository import Gdk, Gtk  # noqa: E402
 
 from pomodoro.timer import Phase  # noqa: E402
 from pomodoro.ui import dialogs  # noqa: E402
+from pomodoro.ui.dialogs import new_task  # noqa: E402
 from pomodoro.ui.main_window import MainWindow  # noqa: E402
 from pomodoro.ui.pages.today import TodayPage  # noqa: E402
 from pomodoro.ui.sidebar import Sidebar, capacity_text  # noqa: E402
@@ -145,7 +146,8 @@ class TaskListTest(UiTest):
         with mock.patch.object(Gtk.Menu, "popup_at_pointer"):
             menu = task_list._task_menu(task, click_event(3))
         items = {i.get_label(): i for i in menu.get_children() if isinstance(i, Gtk.MenuItem) and i.get_label()}
-        self.assertEqual(list(items), ["Focar nesta tarefa", "Concluir", "Adicionar subtarefa", "Renomear…", "Excluir…"])
+        self.assertEqual(list(items), ["Editar…", "Focar nesta tarefa", "Concluir", "Adicionar subtarefa",
+                                       "Renomear…", "Excluir…"])
         items["Concluir"].activate()
         self.assertEqual(self.controller.repo.get_task(task.id)["status"], "done")
         with mock.patch.object(dialogs, "ask_text", return_value="Lavar a roupa branca"):
@@ -459,7 +461,9 @@ class MainWindowTest(UiTest):
         self.assertTrue(window._on_key_press(window, event))
         self.assertEqual(window.stack.get_visible_child_name(), "today")
         event.keyval = Gdk.KEY_n
-        self.assertTrue(window._on_key_press(window, event))
+        with mock.patch.object(new_task, "run_new_task_dialog", return_value=None) as run:
+            self.assertTrue(window._on_key_press(window, event))
+        run.assert_called_once()
         event.keyval = Gdk.KEY_a
         self.assertFalse(window._on_key_press(window, event))
 

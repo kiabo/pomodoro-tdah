@@ -15,7 +15,8 @@ class ChoiceGroup(Gtk.Box):
 
     __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, (object,))}
 
-    def __init__(self, items, value=None, style_name="segmented"):
+    def __init__(self, items, value=None, style_name="segmented", allow_empty=False):
+        """allow_empty: o grupo pode ficar sem seleção (value None), por ex. ao digitar um tempo livre."""
         if style_name not in STYLES:
             raise ValueError(f"estilo desconhecido: {style_name}")
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=0 if style_name == "segmented" else 8)
@@ -24,6 +25,7 @@ class ChoiceGroup(Gtk.Box):
             self.set_homogeneous(True)
         self._buttons = {}
         self._value = None
+        self._allow_empty = allow_empty
         self._updating = False
         for item_value, label in items:
             button = Gtk.ToggleButton(label=label)
@@ -35,7 +37,7 @@ class ChoiceGroup(Gtk.Box):
             button.connect("toggled", self._on_toggled, item_value)
             self.pack_start(button, style_name == "segmented", True, 0)
             self._buttons[item_value] = button
-        if value is None and self._buttons:
+        if value is None and self._buttons and not allow_empty:
             value = next(iter(self._buttons))
         self.set_value(value)
 
@@ -44,7 +46,9 @@ class ChoiceGroup(Gtk.Box):
         return self._value
 
     def set_value(self, value, emit=False):
-        if value not in self._buttons:
+        if value is None and self._allow_empty:
+            pass
+        elif value not in self._buttons:
             raise ValueError(f"valor fora das opções: {value!r}")
         changed = value != self._value
         self._updating = True

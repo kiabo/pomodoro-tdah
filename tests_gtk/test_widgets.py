@@ -1,6 +1,6 @@
 import unittest
 
-from tests_gtk._support import near, pump, render, require_gtk
+from tests_gtk._support import find, near, pump, render, require_gtk
 
 require_gtk()
 
@@ -246,3 +246,104 @@ class BarChartDrawingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from datetime import date  # noqa: E402
+
+from pomodoro.ui.widgets import DatePicker, Select  # noqa: E402
+
+
+class ChoiceGroupEmptyTest(unittest.TestCase):
+    ITEMS = [(15, "15m"), (45, "45m")]
+
+    def test_can_start_and_become_empty(self):
+        group = ChoiceGroup(self.ITEMS, None, "chips", allow_empty=True)
+        self.assertIsNone(group.value)
+        self.assertFalse(any(b.get_active() for b in group._buttons.values()))
+        seen = []
+        group.connect("changed", lambda _g, value: seen.append(value))
+        group._buttons[45].set_active(True)
+        self.assertEqual((group.value, seen), (45, [45]))
+        group.set_value(None)
+        self.assertIsNone(group.value)
+        self.assertFalse(any(b.get_active() for b in group._buttons.values()))
+        self.assertEqual(seen, [45])                                      # programático: silencioso
+
+    def test_strict_group_still_refuses_none(self):
+        group = ChoiceGroup(self.ITEMS, 15, "chips")
+        with self.assertRaises(ValueError):
+            group.set_value(None)
+
+
+class SelectTest(unittest.TestCase):
+    ITEMS = [("a", "Trabalho"), ("b", "Casa"), (None, "Nenhum")]
+
+    def test_value_text_and_changes(self):
+        select = Select(self.ITEMS, "b")
+        seen = []
+        select.connect("changed", lambda _s, value: seen.append(value))
+        self.assertEqual((select.value, select.get_text()), ("b", "Casa"))
+        select._buttons["a"].clicked()
+        self.assertEqual((select.value, select.get_text(), seen), ("a", "Trabalho", ["a"]))
+        select._buttons[None].clicked()                                    # None também é um valor válido
+        self.assertEqual((select.value, seen), (None, ["a", None]))
+        select.set_value("b")
+        self.assertEqual(seen, ["a", None])                                # silencioso por padrão
+        self.assertTrue(select._buttons["b"].get_active() and not select._buttons["a"].get_active())
+
+    def test_default_first_and_invalid(self):
+        self.assertEqual(Select(self.ITEMS).value, "a")
+        with self.assertRaises(ValueError):
+            Select(self.ITEMS).set_value("x")
+
+    def test_set_items_replaces_options(self):
+        select = Select(self.ITEMS, "b")
+        select.set_items([("x", "Novo")], "x")
+        self.assertEqual((select.items, select.value, select.get_text()), ([("x", "Novo")], "x", "Novo"))
+
+
+class DatePickerTest(unittest.TestCase):
+    TODAY = date(2026, 11, 9)
+
+    def make(self, day=None):
+        picker = DatePicker(day, today=lambda: self.TODAY)
+        self.seen = []
+        picker.connect("changed", lambda _p, value: self.seen.append(value))
+        return picker
+
+    def test_labels(self):
+        self.assertEqual(self.make(self.TODAY).get_text(), "Hoje, 9 nov")
+        self.assertEqual(self.make(date(2026, 11, 10)).get_text(), "Amanhã, 10 nov")
+        self.assertEqual(self.make(None).get_text(), "Sem data")
+
+    def test_shortcut_buttons(self):
+        picker = self.make(None)
+        buttons = {b.get_label(): b for b in find(picker.popover, lambda w: isinstance(w, Gtk.Button))}
+        buttons["Amanhã"].clicked()
+        self.assertEqual((picker.date, picker.get_text()), (date(2026, 11, 10), "Amanhã, 10 nov"))
+        buttons["Hoje"].clicked()
+        buttons["Sem data"].clicked()
+        self.assertEqual(self.seen, [date(2026, 11, 10), self.TODAY, None])
+
+    def test_calendar_click_selects_but_month_navigation_does_not(self):
+        picker = self.make(self.TODAY)
+        picker._calendar.select_day(12)
+        self.assertEqual((picker.date, self.seen), (date(2026, 11, 12), [date(2026, 11, 12)]))
+        picker._calendar.select_month(11, 2026)                           # navegar para dezembro
+        pump()
+        self.assertEqual(picker.date, date(2026, 11, 12))
+        self.assertEqual(len(self.seen), 1)
+        picker._calendar.select_day(24)
+        self.assertEqual(picker.date, date(2026, 12, 24))
+
+    def test_without_none_option(self):
+        picker = DatePicker(self.TODAY, today=lambda: self.TODAY, allow_none=False)
+        labels_ = [b.get_label() for b in find(picker.popover, lambda w: isinstance(w, Gtk.Button))]
+        self.assertNotIn("Sem data", labels_)
+
+    def test_set_date_is_silent_by_default(self):
+        picker = self.make(None)
+        picker.set_date(self.TODAY)
+        self.assertEqual(self.seen, [])
+        picker.set_date(date(2026, 11, 11), emit=True)
+        self.assertEqual(self.seen, [date(2026, 11, 11)])

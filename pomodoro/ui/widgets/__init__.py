@@ -3,9 +3,10 @@ from .basic import BAR_COLORS, STATUS_LABELS, GroupDot, StatusPill, make_bar, ma
 from .choice_group import ChoiceGroup
 from .progress_ring import ProgressRing
 from .quick_entry import QuickEntry
+from .select import DatePicker, Select
 from .time_stepper import TimeStepper
 
 __all__ = [
-    "BAR_COLORS", "STATUS_LABELS", "BarChart", "ChoiceGroup", "GroupDot", "ProgressRing", "QuickEntry",
+    "BAR_COLORS", "STATUS_LABELS", "BarChart", "ChoiceGroup", "GroupDot", "ProgressRing", "QuickEntry", "DatePicker", "Select",
     "StatusPill", "TimeStepper", "make_bar", "make_toggle", "set_bar_fraction",
 ]

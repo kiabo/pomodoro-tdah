@@ -2,10 +2,12 @@
 
   scripts/preview.sh                  abre a janela com os dados de exemplo (num banco temporário)
   scripts/preview.sh --png saida.png  gera uma imagem, sem abrir janela
+  scripts/preview.sh --screen editor|new-task [--png saida.png]   outras telas
 """
 
 import argparse
 import tempfile
+from datetime import datetime, timedelta
 
 import gi
 
@@ -14,8 +16,24 @@ from gi.repository import Gtk
 
 from .. import settings as settings_store
 from ..controller import Controller
+from .dialogs.new_task import NewTaskDialog
 from .main_window import MainWindow
 from .theme import load_theme, themed_window
+
+
+class PreviewEstimator:
+    """Estimador fictício, só para mostrar os cartões da IA na pré-visualização."""
+
+    def suggest_estimate(self, repo, title, group_id, user_estimate_min):
+        if user_estimate_min and "apresent" in title.lower():
+            return {"minutes": 80, "note": "Tarefas parecidas (“Montar slides”, “Apresentação trimestral”) "
+                                           "levaram em média 1h 20m. Você costuma subestimar apresentações em ~40%."}
+        if "relat" in title.lower():
+            return {"minutes": 102, "note": "Baseado em 6 relatórios anteriores (média +14%)."}
+        return None
+
+    def suggest_subtasks(self, repo, title, group_id):
+        return [("Definir 3 mensagens principais", 20), ("Montar os slides no modelo", 40), ("Ensaiar em voz alta", 20)]
 
 
 def fill_sample_data(controller):
@@ -46,6 +64,16 @@ def fill_sample_data(controller):
     controller.add_task("Lavar roupa", 30, home["id"])
     controller.add_task("Marcar dentista", 10, home["id"])
 
+    # Histórico do relatório: manhã com uma sessão interrompida por distração.
+    base = datetime.now().replace(hour=14, minute=5, second=0, microsecond=0)
+    for kind_start, minutes, sub, interrupted in ((0, 25, numbers, False), (35, 5, numbers, True)):
+        started = base + timedelta(minutes=kind_start)
+        session = repo.start_session("work", task_id=report["id"], subtask_id=sub["id"], started_at=started)
+        repo.end_session(session, minutes * 60, interrupted=interrupted, completed_phase=not interrupted,
+                         ended_at=started + timedelta(minutes=minutes))
+    repo.add_distraction("ligar para o banco", task_id=report["id"])
+    controller.estimator = PreviewEstimator()
+
     controller.focus(report["id"], charts["id"])
     timer = controller.timer           # 15:32 restantes do foco 3 de 4, rodando
     timer.cycle = 3
@@ -64,18 +92,43 @@ def build_preview():
     return controller, MainWindow(controller)
 
 
-def render_png(path, width=1280, height=860):
-    controller, window = build_preview()
-    content = window.get_child()
-    window.remove(content)
-    offscreen = Gtk.OffscreenWindow()
-    themed_window(offscreen)
-    offscreen.add(content)
-    offscreen.set_size_request(width, height)
-    offscreen.show_all()
-    for _ in range(5):
+def _pump():
+    for _ in range(6):
         while Gtk.events_pending():
             Gtk.main_iteration()
+
+
+def render_png(path, width=1280, height=860, screen="today"):
+    controller, window = build_preview()
+    offscreen = Gtk.OffscreenWindow()
+    themed_window(offscreen)
+    if screen == "new-task":
+        dialog = NewTaskDialog(window, controller)
+        dialog.title_entry.set_text("Preparar apresentação para o cliente")
+        dialog.set_estimate(45)
+        for title, minutes in (("Definir 3 mensagens principais", 20), ("Montar os slides no modelo", 40),
+                               ("Ensaiar em voz alta", 20)):
+            dialog.add_subtask_row(title=title, minutes=minutes, focus=False)
+        dialog._refresh_suggestion()
+        content = dialog.body
+        content.get_parent().remove(content)
+        offscreen.add(content)
+        width, height = 720, None
+    else:
+        if screen == "editor":
+            report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
+            window.open_task_editor(report["id"])
+        content = window.get_child()
+        window.remove(content)
+        offscreen.add(content)
+    offscreen.set_size_request(width, height or -1)
+    offscreen.show_all()
+    _pump()
+    if height is None:
+        height = offscreen.get_preferred_height_for_width(width)[1]
+        offscreen.set_size_request(width, height)
+        offscreen.resize(width, height)
+        _pump()
     offscreen.get_pixbuf().savev(path, "png", [], [])
     return width, height
 
@@ -83,13 +136,21 @@ def render_png(path, width=1280, height=860):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--png", help="salva a janela neste arquivo PNG em vez de abri-la")
+    parser.add_argument("--screen", choices=("today", "editor", "new-task"), default="today")
+    parser.add_argument("--width", type=int, default=1280, help="largura da imagem (com --png)")
     args = parser.parse_args()
     if args.png:
-        print("PNG %dx%d -> %s" % (*render_png(args.png), args.png))
+        print("PNG %dx%d -> %s" % (*render_png(args.png, width=args.width, screen=args.screen), args.png))
         return
-    _controller, window = build_preview()
+    controller, window = build_preview()
     window.connect("destroy", Gtk.main_quit)
     window.present_today()
+    if args.screen == "editor":
+        report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
+        window.open_task_editor(report["id"])
+    elif args.screen == "new-task":
+        from gi.repository import GLib
+        GLib.idle_add(lambda: window.open_new_task_dialog() and False)
     Gtk.main()
 
 

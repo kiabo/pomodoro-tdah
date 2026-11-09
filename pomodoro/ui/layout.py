@@ -28,6 +28,25 @@ def vbox(*children, spacing=0, classes=()):
     return box
 
 
+def flow(*children, max_per_line=4, spacing=12, homogeneous=True, halign=None):
+    """Linha que quebra em várias quando falta largura (a largura mínima é a do maior filho)."""
+    box = Gtk.FlowBox()
+    box.set_selection_mode(Gtk.SelectionMode.NONE)
+    box.set_homogeneous(homogeneous)
+    box.set_min_children_per_line(1)
+    box.set_max_children_per_line(max_per_line)
+    box.set_column_spacing(spacing)
+    box.set_row_spacing(spacing)
+    box.set_activate_on_single_click(False)
+    if halign is not None:
+        box.set_halign(halign)
+    for child in children:
+        box.add(child)
+    for holder in box.get_children():
+        holder.set_can_focus(False)
+    return box
+
+
 def expand(widget):
     """Faz o widget ocupar o espaço que sobrar na caixa."""
     widget.set_hexpand(True)

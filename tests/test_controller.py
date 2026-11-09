@@ -118,6 +118,179 @@ class FocusContextTest(ControllerTest):
         self.assertEqual((ctx["estimate_min"], ctx["next_title"]), (50, None))
 
 
+class EditTaskTest(ControllerTest):
+    def setUp(self):
+        super().setUp()
+        self.repo = self.controller.repo
+        self.work = self.repo.create_group("Trabalho", work_min=50)
+        self.home = self.repo.create_group("Casa")
+        self.task = self.controller.add_task("Relatório", estimate_min=90, group_id=self.work["id"])
+
+    def test_update_fields_and_estimate_clears_with_zero(self):
+        self.controller.update_task(self.task["id"], notes="usar o modelo", energy="high",
+                                    repeat_rule="monthly:9", scheduled_for="2026-11-12", estimate_min=0)
+        row = self.repo.get_task(self.task["id"])
+        self.assertEqual((row["notes"], row["energy"], row["repeat_rule"], row["scheduled_for"], row["estimate_min"]),
+                         ("usar o modelo", "high", "monthly:9", "2026-11-12", None))
+        with self.assertRaises(ValueError):
+            self.controller.update_task(self.task["id"], repeat_rule="quinzenal")
+        with self.assertRaises(KeyError):
+            self.controller.update_task("nao-existe", notes="x")
+
+    def test_group_requiring_estimate_blocks_removing_it(self):
+        strict = self.repo.create_group("Rígido", require_estimate=True)
+        task = self.controller.add_task("Com previsão", estimate_min=20, group_id=strict["id"])
+        with self.assertRaises(ValueError):
+            self.controller.update_task(task["id"], estimate_min=0)
+        self.assertEqual(self.repo.get_task(task["id"])["estimate_min"], 20)
+        loose = self.controller.add_task("Sem previsão", group_id=self.home["id"])
+        with self.assertRaises(ValueError):
+            self.controller.update_task(loose["id"], group_id=strict["id"])         # mover exige previsão
+        self.assertEqual(self.repo.get_task(loose["id"])["group_id"], self.home["id"])
+        self.controller.update_task(loose["id"], group_id=strict["id"], estimate_min=15)
+        self.assertEqual(self.repo.get_task(loose["id"])["group_id"], strict["id"])
+
+    def test_moving_the_focused_task_updates_timer_duration(self):
+        self.controller.focus(self.task["id"])
+        self.assertEqual(self.controller.timer.remaining, 50 * 60)
+        self.controller.update_task(self.task["id"], group_id=self.home["id"])
+        self.assertEqual(self.controller.timer.remaining, 25 * 60)
+        self.assertEqual(self.repo.get_task(self.task["id"])["group_id"], self.home["id"])
+
+    def test_estimate_change_rearms_hyperfocus_math(self):
+        self.controller.update_task(self.task["id"], estimate_min=1)
+        self.controller.focus(self.task["id"])
+        self.controller.toggle_timer()
+        self.tick(90)
+        self.assertTrue(any("Passou do previsto" in n for n in self.notes))
+        self.controller.update_task(self.task["id"], estimate_min=10)            # sobe o previsto: sem novo alerta
+        before = len(self.notes)
+        self.tick(30)
+        self.assertEqual(len(self.notes), before)
+
+    def test_update_and_reorder_subtasks(self):
+        s1 = self.controller.add_subtask(self.task["id"], "A", 10)
+        s2 = self.controller.add_subtask(self.task["id"], "B")
+        self.controller.update_subtask(s2["id"], estimate_min=25, title="B2")
+        self.controller.update_subtask(s1["id"], estimate_min=0)
+        row1, row2 = self.repo.get_subtask(s1["id"]), self.repo.get_subtask(s2["id"])
+        self.assertEqual((row1["estimate_min"], row2["estimate_min"], row2["title"]), (None, 25, "B2"))
+        self.controller.reorder_subtasks(self.task["id"], [s2["id"], s1["id"]])
+        self.assertEqual([s["id"] for s in self.repo.list_subtasks(self.task["id"])], [s2["id"], s1["id"]])
+
+    def test_adjust_real_time(self):
+        sub = self.controller.add_subtask(self.task["id"], "A")
+        self.controller.adjust_real_time(self.task["id"], 30)
+        self.controller.adjust_real_time(self.task["id"], -10, subtask_id=sub["id"])
+        self.assertEqual(self.repo.real_seconds(self.task["id"]), 20 * 60)
+        self.assertEqual(self.repo.real_seconds_subtask(sub["id"]), 0)
+        with self.assertRaises(ValueError):
+            self.controller.adjust_real_time(self.task["id"], -21)
+        self.controller.adjust_real_time(self.task["id"], 0)                     # sem efeito
+        self.assertEqual(self.repo.real_seconds(self.task["id"]), 20 * 60)
+
+    def test_adjust_updates_live_numbers(self):
+        self.controller.focus(self.task["id"])
+        self.controller.toggle_timer()
+        self.tick(60)
+        self.controller.adjust_real_time(self.task["id"], 10)
+        self.assertEqual(self.controller.tracker.live_real_seconds(self.task["id"]), 60 + 600)
+
+    def test_duplicate_defaults_to_tomorrow(self):
+        sub = self.controller.add_subtask(self.task["id"], "Gráficos", 30)
+        copy = self.controller.duplicate_task(self.task["id"])
+        self.assertEqual((copy["scheduled_for"], copy["title"]), ("2026-11-10", "Relatório"))
+        self.assertEqual([s["title"] for s in self.repo.list_subtasks(copy["id"])], ["Gráficos"])
+        again = self.controller.duplicate_task(self.task["id"], day=None)
+        self.assertIsNone(again["scheduled_for"])
+        self.assertEqual(sub["title"], "Gráficos")
+
+    def test_task_detail(self):
+        s1 = self.controller.add_subtask(self.task["id"], "Números", 25)
+        self.controller.add_subtask(self.task["id"], "Gráficos", 30)
+        self.controller.focus(self.task["id"], s1["id"])
+        self.controller.toggle_timer()
+        self.tick(50 * 60)                                                       # o grupo usa foco de 50 min
+        self.controller.skip_phase()                                             # conclui o 1º pomodoro
+        self.controller.tracker.add_distraction("ligar para o banco")
+        self.controller.adjust_real_time(self.task["id"], 5)
+        detail = self.controller.task_detail(self.task["id"])
+        self.assertEqual(detail["group"]["name"], "Trabalho")
+        self.assertEqual((detail["real_seconds"], detail["pomodoros"], detail["estimate_sum"]), (3300, 1, 55))
+        self.assertEqual([(s["title"], s["real_seconds"], s["done"]) for s in detail["subtasks"]],
+                         [("Números", 3000, False), ("Gráficos", 0, False)])
+        kinds = [(s["kind"], s["subtask_title"]) for s in detail["sessions"]]
+        self.assertEqual(kinds, [("work", "Números"), ("manual", None)])
+        self.assertEqual([d["text"] for d in detail["distractions"]], ["ligar para o banco"])
+        self.assertIsNone(self.controller.task_detail("nao-existe"))
+
+
+class CreateTaskFullTest(ControllerTest):
+    def test_creates_everything_at_once(self):
+        group = self.controller.repo.create_group("Trabalho")
+        task = self.controller.create_task_full(
+            "Preparar apresentação", group_id=group["id"], day="2026-11-12", estimate_min=80,
+            repeat_rule="weekly:3", energy="high", notes="slides do modelo",
+            subtasks=[("Definir tópicos", 20), (" Criar slides ", 40), ("Ensaiar", None)])
+        row = self.controller.repo.get_task(task["id"])
+        self.assertEqual((row["scheduled_for"], row["estimate_min"], row["repeat_rule"], row["energy"], row["notes"]),
+                         ("2026-11-12", 80, "weekly:3", "high", "slides do modelo"))
+        subs = self.controller.repo.list_subtasks(task["id"])
+        self.assertEqual([(s["title"], s["estimate_min"]) for s in subs],
+                         [("Definir tópicos", 20), ("Criar slides", 40), ("Ensaiar", None)])
+        self.assertIn("data", self.events)
+
+    def test_default_day_is_today_and_none_means_no_date(self):
+        self.assertEqual(self.controller.create_task_full("Hoje")["scheduled_for"], "2026-11-09")
+        self.assertIsNone(self.controller.create_task_full("Sem data", day=None)["scheduled_for"])
+
+    def test_invalid_input_leaves_nothing_behind(self):
+        with self.assertRaises(ValueError):
+            self.controller.create_task_full("A", subtasks=[("ok", 5), ("  ", 5)])
+        with self.assertRaises(ValueError):
+            self.controller.create_task_full("   ")
+        with self.assertRaises(ValueError):
+            self.controller.create_task_full("B", repeat_rule="quinzenal")
+        strict = self.controller.repo.create_group("Rígido", require_estimate=True)
+        with self.assertRaises(ValueError):
+            self.controller.create_task_full("C", group_id=strict["id"])
+        self.assertEqual(self.controller.repo.list_tasks(), [])
+
+    def test_focus_option_starts_the_timer(self):
+        task = self.controller.create_task_full("Já começar", focus=True)
+        self.assertEqual(self.controller.tracker.active_task_id, task["id"])
+        self.assertTrue(self.controller.timer.running)
+
+    def test_focus_and_start(self):
+        task = self.controller.add_task("A")
+        self.controller.focus_and_start(task["id"])
+        self.assertTrue(self.controller.timer.running)
+        self.controller.focus_and_start(task["id"])                              # já rodando: não pausa
+        self.assertTrue(self.controller.timer.running)
+
+
+class EstimatorHookTest(ControllerTest):
+    class FakeEstimator:
+        def suggest_estimate(self, repo, title, group_id, user_estimate_min):
+            return {"minutes": 80, "note": f"para {title}"} if user_estimate_min == 45 else None
+
+        def suggest_subtasks(self, repo, title, group_id):
+            return [("Definir tópicos", 20), ("Criar slides", 40)]
+
+    def test_without_estimator(self):
+        self.assertIsNone(self.controller.suggest_estimate("Qualquer", None, 45))
+        self.assertEqual(self.controller.suggest_subtasks("Qualquer"), [])
+
+    def test_with_estimator(self):
+        self.controller.estimator = self.FakeEstimator()
+        self.assertEqual(self.controller.suggest_estimate("Apresentação", None, 45),
+                         {"minutes": 80, "note": "para Apresentação"})
+        self.assertIsNone(self.controller.suggest_estimate("Apresentação", None, 30))
+        self.assertIsNone(self.controller.suggest_estimate("   ", None, 45))
+        self.assertEqual(len(self.controller.suggest_subtasks("Apresentação")), 2)
+        self.assertEqual(self.controller.suggest_subtasks(""), [])
+
+
 class CompleteCurrentTest(ControllerTest):
     def test_subtask_then_next_pending(self):
         task = self.controller.add_task("Relatório")

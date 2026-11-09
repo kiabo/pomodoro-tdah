@@ -8,7 +8,9 @@ from gi.repository import Gdk, GLib, Gtk
 
 from . import dialogs
 from .layout import button
+from .dialogs import new_task
 from .pages.placeholder import BasicSettingsPage, PlaceholderPage
+from .pages.task_editor import TaskEditorPage
 from .pages.today import TodayPage
 from .sidebar import Sidebar
 from .theme import style, themed_window
@@ -39,8 +41,10 @@ class MainWindow(Gtk.Window):
         self.today = TodayPage(controller)
         self.stack = Gtk.Stack()
         self.stack.set_hexpand(True)
+        self.editor = TaskEditorPage(controller)
         self.pages = {
             "today": self.today,
+            "task": self.editor,
             "plan": PlaceholderPage("FIM DO DIA", "Revisar e planejar amanhã",
                                     "Aqui você vai revisar o que ficou e reanotar o dia seguinte. Chega na Fase 9."),
             "groups": PlaceholderPage("ORGANIZAÇÃO", "Grupos de tarefas",
@@ -63,6 +67,11 @@ class MainWindow(Gtk.Window):
         self.sidebar.connect("navigate", lambda _s, page: self.show_page(page))
         self.sidebar.connect("group-selected", lambda *_: self.refresh_tasks())
         self.today.connect("query-changed", lambda *_: self.refresh_tasks())
+        self.today.connect("new-task", lambda *_: self.open_new_task_dialog())
+        self.today.task_list.on_edit = self.open_task_editor
+        self.editor.connect("back", lambda *_: self._leave_editor())
+        self.editor.connect("open-task", lambda _e, task_id: self.editor.load(task_id))
+        self.editor.connect("focus-started", lambda *_: self.show_page("today"))
         self.connect("delete-event", lambda *_: self.hide() or True)
         self.connect("key-press-event", self._on_key_press)
         self.connect("map", lambda *_: self.refresh_all())
@@ -73,7 +82,22 @@ class MainWindow(Gtk.Window):
 
     def show_page(self, name):
         self.stack.set_visible_child_name(name)
-        self.sidebar.set_page(name)
+        self.sidebar.set_page("today" if name == "task" else name)
+
+    def open_task_editor(self, task_id):
+        """Abre a tela Editar tarefa (D2) para a tarefa."""
+        self.editor.load(task_id)
+        if self.editor.task_id is not None:
+            self.show_page("task")
+
+    def _leave_editor(self):
+        self.show_page("today")
+        self.refresh_all()
+
+    def open_new_task_dialog(self, group_id=None):
+        """Abre o modal Nova tarefa (D3). Devolve a tarefa criada ou None."""
+        group_id = group_id if group_id is not None else self.sidebar.group_filter
+        return new_task.run_new_task_dialog(self, self.controller, group_id=group_id)
 
     def toggle(self):
         if self.get_visible():
@@ -95,8 +119,7 @@ class MainWindow(Gtk.Window):
             self.today.focus_search()
             return True
         if ctrl and event.keyval in (Gdk.KEY_n, Gdk.KEY_N):
-            self.show_page("today")
-            self.today.focus_quick_add()
+            self.open_new_task_dialog()
             return True
         return False
 
@@ -105,10 +128,13 @@ class MainWindow(Gtk.Window):
     def _on_event(self, kind):
         if not self.get_visible():
             return                      # escondida na bandeja: refaz tudo ao reaparecer ("map")
+        editing = self.stack.get_visible_child_name() == "task"
         if kind == "tick":
             self.refresh_timer()
         else:
             self.refresh_all()
+            if editing:
+                self.editor.on_data(kind)
 
     def refresh_all(self):
         self.refresh_tasks()
@@ -133,6 +159,8 @@ class MainWindow(Gtk.Window):
     def refresh_timer(self):
         self.sidebar.refresh_timer()
         self.today.refresh_live()
+        if self.stack.get_visible_child_name() == "task":
+            self.editor.refresh_live()
 
     # ---- diálogos -------------------------------------------------------
 

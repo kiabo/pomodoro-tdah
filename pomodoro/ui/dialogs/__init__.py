@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
-from .theme import style, themed_window
+from ..theme import style, themed_window
 
 
 def confirm(parent, text, secondary=None, yes="Excluir"):
@@ -24,7 +24,7 @@ def confirm(parent, text, secondary=None, yes="Excluir"):
     return response == Gtk.ResponseType.YES
 
 
-def ask_text(parent, title, initial="", ok="Salvar"):
+def ask_text(parent, title, initial="", ok="Salvar", hint=None):
     """Pede um texto. Devolve o texto (sem espaços nas pontas) ou None se cancelou/ficou vazio."""
     dialog = Gtk.Dialog(title=title, transient_for=parent, modal=True)
     themed_window(dialog)
@@ -37,6 +37,11 @@ def ask_text(parent, title, initial="", ok="Salvar"):
     entry.set_width_chars(36)
     box = dialog.get_content_area()
     box.set_border_width(16)
+    box.set_spacing(8)
+    if hint:
+        hint_label = style(Gtk.Label(label=hint), "small", "muted")
+        hint_label.set_xalign(0.0)
+        box.add(hint_label)
     box.add(entry)
     dialog.show_all()
     entry.select_region(0, -1)

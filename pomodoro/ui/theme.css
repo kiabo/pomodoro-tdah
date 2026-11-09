@@ -352,3 +352,70 @@ headerbar.titlebar-custom {
     min-height: 40px;
     color: #6B7280;
 }
+
+/* ---- seletor (lista suspensa) ------------------------------------------ */
+
+button.select {
+    background-image: none;
+    background-color: #FFFFFF;
+    border: 1px solid #E2DCD1;
+    border-radius: 10px;
+    box-shadow: none;
+    text-shadow: none;
+    outline-style: none;
+    padding: 9px 12px;
+    min-height: 0;
+    min-width: 0;
+    color: #1F2430;
+    font-weight: 400;
+}
+button.select:hover { background-color: #FAF7F2; }
+button.select:focus { border-color: #5B5BD6; }
+button.select:checked { border-color: #5B5BD6; }
+button.select-item {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    text-shadow: none;
+    outline-style: none;
+    border-radius: 8px;
+    padding: 7px 12px;
+    min-height: 0;
+    color: #1F2430;
+    font-weight: 400;
+}
+button.select-item:hover { background-color: #F1EDE4; }
+button.select-item:checked { color: #5B5BD6; font-weight: 700; }
+
+/* ---- editor de tarefa ------------------------------------------------------ */
+
+textview.notes-view, textview.notes-view text { background-color: transparent; background-image: none; font-size: 13px; color: #4B5060; }
+entry.title-entry {
+    font-size: 22px;
+    font-weight: 700;
+    background-color: transparent;
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    box-shadow: none;
+    padding: 4px 8px;
+    min-height: 0;
+    color: #1F2430;
+}
+entry.title-entry:focus { border-color: #5B5BD6; background-color: #FFFFFF; box-shadow: none; }
+entry.sub-entry {
+    font-size: 13px;
+    background-color: transparent;
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    box-shadow: none;
+    padding: 6px 8px;
+    min-height: 0;
+    color: #1F2430;
+}
+entry.sub-entry:focus { border-color: #5B5BD6; background-color: #FFFFFF; box-shadow: none; }
+.sub-row-active { background-color: #F1F0FD; border-radius: 10px; }
+.drop-before { border-top: 2px solid #5B5BD6; }
+.drop-after { border-bottom: 2px solid #5B5BD6; }

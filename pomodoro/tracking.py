@@ -77,15 +77,20 @@ class Tracker:
             self._close_session()
         self._task_id, self._subtask_id = task_id, subtask_id
 
+        self.reapply_overrides()
+        if splitting and self.timer.running and self.timer.phase == Phase.WORK:
+            self._open_session()
+        else:
+            self._refresh_cache()
+
+    def reapply_overrides(self):
+        """Usa no timer a duração própria do grupo da tarefa em foco (chame se ela mudar de grupo)."""
+        task = self.repo.get_task(self._task_id) if self._task_id else None
         group = self.repo.get_group(task["group_id"]) if task else None
         self.timer.set_overrides(
             work_min=group["work_min"] if group else None,
             short_break_min=group["short_break_min"] if group else None,
         )
-        if splitting and self.timer.running and self.timer.phase == Phase.WORK:
-            self._open_session()
-        else:
-            self._refresh_cache()
 
     # ---- sessões --------------------------------------------------------
 

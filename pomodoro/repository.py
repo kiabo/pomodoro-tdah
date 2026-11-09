@@ -7,7 +7,7 @@ Tempo real de uma tarefa = soma dos segundos das sessões 'work' e 'manual' liga
 
 from datetime import date, datetime
 
-from . import db
+from . import db, recurrence
 
 TASK_STATUSES = ("todo", "doing", "done", "discarded")
 ENERGY_LEVELS = ("low", "medium", "high")
@@ -190,6 +190,8 @@ class Repository:
                     repeat_rule=None, energy=None):
         if energy is not None and energy not in ENERGY_LEVELS:
             raise ValueError(f"energia inválida: {energy}")
+        if not recurrence.is_valid(repeat_rule):
+            raise ValueError(f"regra de repetição inválida: {repeat_rule!r}")
         group = self.get_group(group_id)
         if group is None:
             raise KeyError(f"grupo {group_id} não existe")
@@ -216,6 +218,8 @@ class Repository:
                 _check_minutes(fields[key], key)
         if fields.get("energy") is not None and fields["energy"] not in ENERGY_LEVELS:
             raise ValueError(f"energia inválida: {fields['energy']}")
+        if "repeat_rule" in fields and not recurrence.is_valid(fields["repeat_rule"]):
+            raise ValueError(f"regra de repetição inválida: {fields['repeat_rule']!r}")
         if fields.get("difficulty") is not None and fields["difficulty"] not in DIFFICULTIES:
             raise ValueError(f"dificuldade inválida: {fields['difficulty']}")
         if "status" in fields:
@@ -475,13 +479,16 @@ class Repository:
             )
         return cur.lastrowid
 
-    def list_distractions(self, since=None):
-        if since is None:
-            return _rows(self.conn.execute("SELECT * FROM distractions ORDER BY created_at, id"))
-        since = db.timestamp(since) if isinstance(since, datetime) else since
-        return _rows(self.conn.execute(
-            "SELECT * FROM distractions WHERE created_at >= ? ORDER BY created_at, id", (since,)
-        ))
+    def list_distractions(self, since=None, task_id=None):
+        clauses, params = [], []
+        if since is not None:
+            clauses.append("created_at >= ?")
+            params.append(db.timestamp(since) if isinstance(since, datetime) else since)
+        if task_id is not None:
+            clauses.append("task_id = ?")
+            params.append(task_id)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return _rows(self.conn.execute(f"SELECT * FROM distractions{where} ORDER BY created_at, id", params))
 
     def delete_distraction(self, distraction_id):
         with self.conn:

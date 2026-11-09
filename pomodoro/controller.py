@@ -9,12 +9,12 @@ Notificações e som entram por injeção (notify, play_sound), assim os testes 
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from . import db, settings as settings_store, today as today_model
 from .repository import Repository
-from .timer import PHASE_LABELS, PomodoroTimer
+from .timer import PHASE_LABELS, Phase, PomodoroTimer
 from .tracking import Tracker
 
 log = logging.getLogger(__name__)
@@ -32,6 +32,9 @@ class Controller:
         self._notify = notify or (lambda message: None)
         self._play_sound = play_sound or (lambda sound: None)
         self._subscribers = []
+        # Estimador de tempo (Fase 8). Precisa de suggest_estimate(repo, title, group_id, user_estimate_min)
+        # -> {"minutes": int, "note": str} | None e suggest_subtasks(repo, title, group_id) -> [(título, min)].
+        self.estimator = None
 
         self.timer = PomodoroTimer(self.settings, self._on_tick, self._on_phase_change, scheduler=scheduler)
         self.tracker = Tracker(self.repo, self.timer, lambda: self.settings, on_alert=self._on_alert)
@@ -191,6 +194,135 @@ class Controller:
     def set_subtask_done(self, subtask_id, done):
         self.repo.set_subtask_done(subtask_id, done)
         self._changed()
+
+    # ---- edição completa de uma tarefa ------------------------------------
+
+    def task_detail(self, task_id):
+        """Tudo da tela Editar tarefa: dados, subtarefas com tempo real, sessões e distrações."""
+        repo = self.repo
+        task = repo.get_task(task_id)
+        if task is None:
+            return None
+        subs = repo.list_subtasks(task_id)
+        titles = {sub["id"]: sub["title"] for sub in subs}
+        sessions = repo.list_sessions(task_id=task_id, kinds=("work", "manual"))
+        for session in sessions:
+            session["subtask_title"] = titles.get(session["subtask_id"])
+        return {
+            "task": task,
+            "group": repo.get_group(task["group_id"]),
+            "subtasks": [{"id": s["id"], "title": s["title"], "estimate_min": s["estimate_min"],
+                          "done": bool(s["done"]), "real_seconds": repo.real_seconds_subtask(s["id"])}
+                         for s in subs],
+            "real_seconds": repo.real_seconds(task_id),
+            "pomodoros": sum(1 for s in sessions if s["kind"] == "work" and s["completed_phase"]),
+            "estimate_sum": repo.subtasks_estimate_sum(task_id),
+            "sessions": sessions,
+            "distractions": repo.list_distractions(task_id=task_id),
+        }
+
+    def update_task(self, task_id, **fields):
+        """Edita campos da tarefa. estimate_min 0/None tira a previsão; group_id move de grupo."""
+        task = self.repo.get_task(task_id)
+        if task is None:
+            raise KeyError(f"tarefa {task_id} não existe")
+        if "estimate_min" in fields:
+            fields["estimate_min"] = fields["estimate_min"] or None
+        new_group = fields.pop("group_id", None)
+        target = self.repo.get_group(new_group or task["group_id"])
+        estimate = fields.get("estimate_min", task["estimate_min"])
+        if target["require_estimate"] and estimate is None:
+            raise ValueError("este grupo exige a previsão de tempo")
+        if fields:
+            self.repo.update_task(task_id, **fields)
+        if new_group and new_group != task["group_id"]:
+            self.repo.move_task(task_id, new_group)
+        if "estimate_min" in fields:
+            self.tracker.invalidate()
+        if new_group:
+            self.tracker.reapply_overrides()
+        self._changed()
+
+    def update_subtask(self, subtask_id, **fields):
+        if "estimate_min" in fields:
+            fields["estimate_min"] = fields["estimate_min"] or None
+        self.repo.update_subtask(subtask_id, **fields)
+        if "estimate_min" in fields:
+            self.tracker.invalidate()
+        self._changed()
+
+    def reorder_subtasks(self, task_id, ids):
+        self.repo.reorder_subtasks(task_id, ids)
+        self._changed()
+
+    def adjust_real_time(self, task_id, minutes, subtask_id=None):
+        """Corrige o tempo real (+/- minutos), sem inventar uma sessão de foco."""
+        if not minutes:
+            return
+        if self.repo.real_seconds(task_id) + minutes * 60 < 0:
+            raise ValueError("o tempo real não pode ficar negativo")
+        self.repo.add_manual_adjustment(task_id, int(minutes * 60), subtask_id=subtask_id)
+        self.tracker.invalidate()
+        self._changed()
+
+    def duplicate_task(self, task_id, day=...):
+        """Copia a tarefa com as subtarefas (sem o tempo). Por padrão, para amanhã."""
+        if day is ...:
+            day = self.today() + timedelta(days=1)
+        copy = self.repo.duplicate_task(task_id, scheduled_for=day)
+        self._changed()
+        return copy
+
+    def create_task_full(self, title, group_id=None, day=..., estimate_min=None, repeat_rule=None,
+                         energy=None, notes="", subtasks=(), focus=False):
+        """Cria a tarefa com tudo do modal "Nova tarefa". day=... é hoje; day=None é sem data.
+
+        subtasks: [(título, minutos ou None)]. Valida tudo antes de gravar. focus=True já
+        coloca a tarefa em foco e inicia o timer.
+        """
+        subtasks = [(str(t).strip(), m) for t, m in subtasks]
+        if any(not t for t, _m in subtasks):
+            raise ValueError("toda subtarefa precisa de um título")
+        group_id = group_id or self.repo.default_group_id()
+        task = self.repo.create_task(
+            group_id, title, estimate_min=estimate_min or None,
+            scheduled_for=self.today() if day is ... else day,
+            notes=notes, repeat_rule=repeat_rule, energy=energy,
+        )
+        try:
+            for sub_title, minutes in subtasks:
+                self.repo.add_subtask(task["id"], sub_title, minutes or None)
+        except (ValueError, KeyError):
+            self.repo.delete_task(task["id"])
+            raise
+        if focus:
+            self.tracker.set_active(task["id"])
+            if self.timer.phase == Phase.WORK and not self.timer.running:
+                self.timer.start()
+        self._changed()
+        return task
+
+    def focus_and_start(self, task_id, subtask_id=None):
+        """"Focar nesta tarefa": põe em foco e inicia o timer se ele estiver parado no foco."""
+        self.tracker.set_active(task_id, subtask_id)
+        if self.timer.phase == Phase.WORK and not self.timer.running:
+            self.timer.start()
+        self._changed()
+
+    # ---- sugestões da IA (Fase 8) -----------------------------------------
+
+    def suggest_estimate(self, title, group_id=None, user_estimate_min=None):
+        """{"minutes", "note"} sugerido pela IA para o que está sendo criado, ou None."""
+        if self.estimator is None or not (title or "").strip():
+            return None
+        return self.estimator.suggest_estimate(
+            self.repo, title=title, group_id=group_id, user_estimate_min=user_estimate_min)
+
+    def suggest_subtasks(self, title, group_id=None):
+        """[(título, minutos)] sugeridos pela IA para quebrar a tarefa; [] sem IA."""
+        if self.estimator is None or not (title or "").strip():
+            return []
+        return list(self.estimator.suggest_subtasks(self.repo, title=title, group_id=group_id))
 
     # ---- configurações --------------------------------------------------
 

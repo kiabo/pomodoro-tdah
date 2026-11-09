@@ -12,6 +12,7 @@ from .theme import style
 from .widgets import GroupDot, QuickEntry, StatusPill
 
 COL_EST, COL_REAL, COL_STATUS = 80, 80, 100
+DOUBLE_CLICK_MS = 400
 SUBTASK_INDENT = 32
 
 REAL_COLORS = {"under": COLORS["green"], "over": COLORS["danger"], "active": COLORS["primary"]}
@@ -58,6 +59,8 @@ class TaskList(Gtk.Box):
         self._expanded = set()      # tarefas que o usuário abriu
         self._collapsed = set()     # tarefa em foco que o usuário fechou
         self._adding = None         # tarefa que está recebendo uma subtarefa nova
+        self._last_click = None     # (tarefa, hora) do último clique: a lista é refeita a cada clique
+        self.on_edit = None         # chamada com o id da tarefa para abri-la no editor
         self._task_cells = {}       # task_id -> (label, TaskView)
         self._subtask_cells = {}    # subtask_id -> (label, SubtaskView, TaskView)
         self._group_cells = {}      # group_id -> (label, GroupView)
@@ -146,7 +149,7 @@ class TaskList(Gtk.Box):
                 rows.append(self._subtask_row(task, sub))
             rows.append(self._add_subtask_area(task))
         outer = vbox(*rows, spacing=6, classes=classes)
-        return self._clickable(outer, lambda: self.controller.focus(task.id),
+        return self._clickable(outer, lambda event: self._on_task_click(task, event),
                                lambda event: self._task_menu(task, event))
 
     def _status_pill(self, task, is_active):
@@ -177,7 +180,7 @@ class TaskList(Gtk.Box):
         row = hbox(check, expand(label(sub.title, "small", *title_classes, ellipsize=True)), est, real, status,
                    spacing=12)
         row.set_margin_start(SUBTASK_INDENT)
-        return self._clickable(row, lambda: self.controller.focus(task.id, sub.id),
+        return self._clickable(row, lambda event: self.controller.focus(task.id, sub.id),
                                lambda event: self._subtask_menu(task, sub, event))
 
     def _add_subtask_area(self, task):
@@ -205,13 +208,22 @@ class TaskList(Gtk.Box):
 
         def pressed(_w, event):
             if event.button == 1:
-                on_left()
+                on_left(event)
             elif event.button == 3:
                 on_right(event)
             return False
 
         box.connect("button-press-event", pressed)
         return box
+
+    def _on_task_click(self, task, event):
+        """Um clique foca a tarefa; dois cliques seguidos abrem o editor."""
+        previous, self._last_click = self._last_click, (task.id, event.time)
+        if (previous and previous[0] == task.id and 0 < event.time - previous[1] <= DOUBLE_CLICK_MS
+                and self.on_edit):
+            self.on_edit(task.id)
+            return
+        self.controller.focus(task.id)
 
     def _toggle_expanded(self, task_id, is_active, expanded):
         if expanded:
@@ -259,6 +271,7 @@ class TaskList(Gtk.Box):
         from . import dialogs
         window = self.get_toplevel()
         return self._menu([
+            ("Editar…", lambda: self.on_edit(task.id) if self.on_edit else None),
             ("Focar nesta tarefa", lambda: self.controller.focus(task.id)),
             ("Reabrir" if task.done else "Concluir", lambda: self.controller.set_task_done(task.id, not task.done)),
             ("Adicionar subtarefa", lambda: self._start_adding(task.id)),
