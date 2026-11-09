@@ -33,3 +33,26 @@ def capacity_level(planned_min, free_min):
     if planned_min <= free_min:
         return "tight", 0
     return "over", planned_min - free_min
+
+
+def bias(pairs, min_samples=3):
+    """Média de real ÷ previsto de [(real_seconds, estimate_min), ...]: (razão ou None, nº de amostras).
+
+    Razão > 1: leva mais que o previsto (subestima); < 1: leva menos (superestima).
+    Com menos de min_samples medidas não dá para concluir (None).
+    """
+    ratios = [(real / 60) / est for real, est in pairs if est and real and real > 0]
+    if len(ratios) < min_samples:
+        return None, len(ratios)
+    return sum(ratios) / len(ratios), len(ratios)
+
+
+def bias_note(ratio):
+    """Frase e nível ('none' | 'under' | 'over' | 'good') sobre o viés das previsões de um grupo."""
+    if ratio is None:
+        return "Sem dados suficientes ainda para a IA", "none"
+    if ratio >= 1.1:
+        return f"✦ Você subestima tarefas deste grupo em ~{round((ratio - 1) * 100)}%", "under"
+    if ratio <= 0.9:
+        return f"✦ Você superestima tarefas deste grupo em ~{round((1 - ratio) * 100)}%", "over"
+    return "✦ Suas previsões aqui são ótimas", "good"

@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from pomodoro.ui.chart_math import RING_START, bar_layout, ring_arc
+from pomodoro.ui.chart_math import RING_START, bar_layout, cycle_bar_layout, cycle_segments, ring_arc
 
 WEEK = [
     {"label": "Seg", "planned": 102, "real": 119},
@@ -74,6 +74,35 @@ class BarLayoutTest(unittest.TestCase):
     def test_tiny_values_stay_visible(self):
         layout = bar_layout([{"label": "x", "planned": 1, "real": 1000}], 300, 120)
         self.assertGreaterEqual(layout[0]["bars"][0]["h"], 2)
+
+
+class CycleBarTest(unittest.TestCase):
+    def test_proportional_and_gapped(self):
+        layout = cycle_bar_layout(cycle_segments(25, 5, 15, 4), 400, gap=3)
+        self.assertEqual(len(layout), 8)
+        self.assertAlmostEqual(layout[-1]["x"] + layout[-1]["w"], 400)
+        work, short = layout[0], layout[1]
+        self.assertAlmostEqual(work["w"] / short["w"], 5.0)
+        for a, b in zip(layout, layout[1:]):
+            self.assertAlmostEqual(b["x"] - (a["x"] + a["w"]), 3)
+
+    def test_tiny_segments_stay_visible_and_empty_is_empty(self):
+        layout = cycle_bar_layout([{"kind": "work", "minutes": 100}, {"kind": "short", "minutes": 0}], 200, min_width=3)
+        self.assertGreaterEqual(layout[1]["w"], 3)
+        self.assertEqual(cycle_bar_layout([], 200), [])
+
+
+class CycleTest(unittest.TestCase):
+    def test_segments(self):
+        segments = cycle_segments(25, 5, 15, 4)
+        self.assertEqual([(s["kind"], s["minutes"]) for s in segments],
+                         [("work", 25), ("short", 5), ("work", 25), ("short", 5), ("work", 25), ("short", 5),
+                          ("work", 25), ("long", 15)])
+        self.assertEqual(sum(s["minutes"] for s in segments), 130)
+
+    def test_single_cycle_ends_with_the_long_break(self):
+        self.assertEqual([(s["kind"], s["minutes"]) for s in cycle_segments(50, 10, 20, 1)],
+                         [("work", 50), ("long", 20)])
 
 
 if __name__ == "__main__":

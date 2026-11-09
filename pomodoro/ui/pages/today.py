@@ -20,6 +20,7 @@ class TodayPage(Gtk.Box):
     __gsignals__ = {
         "query-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         "new-task": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "show-all-tasks": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self, controller):
@@ -83,12 +84,17 @@ class TodayPage(Gtk.Box):
         header.set_margin_start(48)
         header.set_margin_end(15)
 
+        self.one_thing_banner = hbox(
+            expand(label("Uma coisa por vez: só a tarefa em foco está visível.", "small", "text-amber-dark")),
+            button("Mostrar tudo", "btn-link", on_click=lambda: self.emit("show-all-tasks")),
+            spacing=10, classes=("card", "card-ai"))
+        self.one_thing_banner.set_no_show_all(True)
         self.task_list = TaskList(self.controller)
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_overlay_scrolling(True)
         self.scroll.add(self.task_list)
-        left = vbox(add_box, header, spacing=8)
+        left = vbox(add_box, self.one_thing_banner, header, spacing=8)
         left.pack_start(self.scroll, True, True, 0)
 
         self.panel = TimerPanel(self.controller)
@@ -132,11 +138,12 @@ class TodayPage(Gtk.Box):
 
     # ---- atualização ----------------------------------------------------
 
-    def refresh(self, view, context, filtered=False, group_name=None):
+    def refresh(self, view, context, filtered=False, group_name=None, one_thing=False):
         """Refaz a tela com os dados novos (view = o que aparece; totais são do dia inteiro)."""
         self._view = view
         adjustment = self.scroll.get_vadjustment()
         position = adjustment.get_value()
+        self.one_thing_banner.set_visible(one_thing)
         self.date_label.set_text(format_date_eyebrow(self.controller.today()))
         self.title_label.set_text(f"Hoje · {group_name}" if group_name else "Hoje")
         self.kpi_planned.set_text(format_minutes(view.planned_min) if view.planned_min else "—")

@@ -15,8 +15,13 @@ class TimeStepper(Gtk.Box):
 
     __gsignals__ = {"value-changed": (GObject.SignalFlags.RUN_FIRST, None, (int,))}
 
-    def __init__(self, minutes=0, step=5, minimum=0, maximum=24 * 60):
+    def __init__(self, minutes=0, step=5, minimum=0, maximum=24 * 60, formatter=format_minutes,
+                 parser=parse_duration, hint="Digite um tempo: 45, 1h30, 1:30…", small=False):
+        """Por padrão conta minutos ("1h 30m"). formatter(n) -> texto e parser(texto) -> n ou None
+        permitem outros números, como "4 focos"."""
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self._format = formatter
+        self._parse = parser
         self._step = step
         self._min = minimum
         self._max = maximum
@@ -24,14 +29,14 @@ class TimeStepper(Gtk.Box):
 
         self._minus = style(Gtk.Button(label="−"), "btn", "btn-step")
         self._plus = style(Gtk.Button(label="+"), "btn", "btn-step")
-        self._entry = style(Gtk.Entry(), "stepper-entry")
-        self._entry.set_width_chars(7)
+        self._entry = style(Gtk.Entry(), "stepper-entry", *(("stepper-small",) if small else ()))
+        self._entry.set_width_chars(8 if small else 7)
         self._entry.set_max_width_chars(9)
         self._entry.set_alignment(0.5)
         self._entry.set_has_frame(False)
         self._minus.set_tooltip_text("Menos")
         self._plus.set_tooltip_text("Mais")
-        self._entry.set_tooltip_text("Digite um tempo: 45, 1h30, 1:30…")
+        self._entry.set_tooltip_text(hint)
 
         self._minus.connect("clicked", lambda *_: self._bump(-1))
         self._plus.connect("clicked", lambda *_: self._bump(+1))
@@ -55,7 +60,7 @@ class TimeStepper(Gtk.Box):
         minutes = self._clamp(minutes)
         changed = minutes != self._minutes
         self._minutes = minutes
-        self._entry.set_text(format_minutes(minutes))
+        self._entry.set_text(self._format(minutes))
         self._minus.set_sensitive(minutes > self._min)
         self._plus.set_sensitive(minutes < self._max)
         if changed and emit:
@@ -65,12 +70,12 @@ class TimeStepper(Gtk.Box):
         self.set_minutes(self._minutes + direction * self._step, emit=True)
 
     def _commit_text(self):
-        parsed = parse_duration(self._entry.get_text())
+        parsed = self._parse(self._entry.get_text())
         if parsed is None:
-            self._entry.set_text(format_minutes(self._minutes))  # texto inválido: volta ao valor atual
+            self._entry.set_text(self._format(self._minutes))  # texto inválido: volta ao valor atual
         else:
             self.set_minutes(parsed, emit=True)
-            self._entry.set_text(format_minutes(self._minutes))
+            self._entry.set_text(self._format(self._minutes))
 
     def _on_focus_out(self, *_args):
         self._commit_text()

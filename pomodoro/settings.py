@@ -5,6 +5,7 @@ As tarefas e o histórico ficam no SQLite (ver db.py); aqui ficam só as prefer�
 
 import json
 import os
+import re
 from pathlib import Path
 
 
@@ -68,8 +69,13 @@ _RANGES = {
 }
 
 
+_CLOCK = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 def _valid(key, value):
     default = DEFAULT_SETTINGS[key]
+    if key == "end_of_day_reminder":
+        return isinstance(value, str) and (value == "" or bool(_CLOCK.match(value)))
     if key == "compact_position":
         return value is None or (
             isinstance(value, (list, tuple)) and len(value) == 2

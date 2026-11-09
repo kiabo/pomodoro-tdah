@@ -5,6 +5,7 @@ Tempo real de uma tarefa = soma dos segundos das sessões 'work' e 'manual' liga
 (sessões de subtarefa também guardam o task_id, então a tarefa soma as subtarefas).
 """
 
+import re
 from datetime import date, datetime
 
 from . import db, recurrence
@@ -48,6 +49,15 @@ def _check_minutes(value, field):
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{field} deve ser um inteiro de minutos >= 0")
     return value
+
+
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _check_color(color):
+    if not isinstance(color, str) or not _HEX_COLOR.match(color):
+        raise ValueError(f"cor inválida: {color!r} (use #RRGGBB)")
+    return color.upper()
 
 
 def _check_title(title):
@@ -114,7 +124,7 @@ class Repository:
             self.conn.execute(
                 "INSERT INTO groups(id, name, color, work_min, short_break_min, require_estimate,"
                 " position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (group_id, _check_title(name), color,
+                (group_id, _check_title(name), _check_color(color),
                  _check_minutes(work_min, "work_min"),
                  _check_minutes(short_break_min, "short_break_min"),
                  int(bool(require_estimate)),
@@ -125,6 +135,8 @@ class Repository:
     def update_group(self, group_id, **fields):
         if "name" in fields:
             fields["name"] = _check_title(fields["name"])
+        if "color" in fields:
+            fields["color"] = _check_color(fields["color"])
         for key in ("work_min", "short_break_min"):
             if key in fields:
                 _check_minutes(fields[key], key)

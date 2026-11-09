@@ -42,6 +42,12 @@ class SettingsTest(unittest.TestCase):
             self.assertEqual(loaded[key], settings.DEFAULT_SETTINGS[key], key)
         self.assertNotIn("desconhecida", loaded)
 
+    def test_reminder_time_must_be_a_clock_time_or_empty(self):
+        for good in ("18:00", "07:30", "23:59", ""):
+            self.assertEqual(settings.sanitize({"end_of_day_reminder": good})["end_of_day_reminder"], good)
+        for bad in ("25:00", "18:60", "6:00", "18h", "18:00:00", 1800, None):
+            self.assertEqual(settings.sanitize({"end_of_day_reminder": bad})["end_of_day_reminder"], "18:00", bad)
+
     def test_corrupted_file(self):
         (self.dir / settings.SETTINGS_FILENAME).write_text("{quebrado")
         self.assertEqual(settings.load_settings(self.dir), settings.DEFAULT_SETTINGS)

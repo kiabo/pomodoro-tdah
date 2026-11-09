@@ -191,3 +191,14 @@ def estimate_note(estimate_min, subtasks_sum, work_min=25):
     if subtasks_sum == estimate_min:
         return f"{text} · soma das subtarefas: {format_minutes(subtasks_sum)} ✓", True
     return f"{text} · ⚠ as subtarefas somam {format_minutes(subtasks_sum)}", False
+
+
+def cycle_summary(work_min, short_min, long_min, cycles):
+    """'Ciclo completo: 2h 10m · 4 focos de 25 min, 3 pausas curtas e 1 longa'."""
+    cycles = max(cycles, 1)
+    total = cycles * work_min + (cycles - 1) * short_min + long_min
+    shorts = cycles - 1
+    focos = f"{cycles} foco{'s' if cycles != 1 else ''} de {work_min} min"
+    pausas = (f"{shorts} pausa{'s' if shorts != 1 else ''} curta{'s' if shorts != 1 else ''} e 1 longa"
+              if shorts else "1 pausa longa")
+    return f"Ciclo completo: {format_minutes(total)} · {focos}, {pausas}"

@@ -1,6 +1,8 @@
+import json
 import tempfile
 import unittest
 from datetime import date, datetime
+from pathlib import Path
 
 from pomodoro.controller import Controller
 from pomodoro.timer import Phase
@@ -289,6 +291,72 @@ class EstimatorHookTest(ControllerTest):
         self.assertIsNone(self.controller.suggest_estimate("   ", None, 45))
         self.assertEqual(len(self.controller.suggest_subtasks("Apresentação")), 2)
         self.assertEqual(self.controller.suggest_subtasks(""), [])
+
+
+class GroupActionsTest(ControllerTest):
+    def test_create_update_and_cards(self):
+        group = self.controller.create_group("Estudos", "#F2B33D", work_min=50, short_break_min=10,
+                                             require_estimate=True)
+        self.assertEqual((group["name"], group["require_estimate"], group["work_min"]), ("Estudos", 1, 50))
+        self.controller.update_group(group["id"], name="Estudos 2026", color="#38B2C9")
+        card = next(c for c in self.controller.group_cards() if c.id == group["id"])
+        self.assertEqual((card.name, card.color, card.cycle_text), ("Estudos 2026", "#38B2C9", "50/10"))
+        with self.assertRaises(ValueError):
+            self.controller.create_group("   ", "#F2B33D")
+        with self.assertRaises(ValueError):
+            self.controller.update_group(group["id"], color="azul")
+        self.assertIn("data", self.events)
+
+    def test_updating_the_focused_group_changes_the_timer(self):
+        group = self.controller.create_group("Estudos", "#F2B33D")
+        task = self.controller.add_task("Capítulo", group_id=group["id"])
+        self.controller.focus(task["id"])
+        self.assertEqual(self.controller.timer.remaining, 25 * 60)
+        self.controller.update_group(group["id"], work_min=40)
+        self.assertEqual(self.controller.timer.remaining, 40 * 60)
+        self.controller.update_group(group["id"], work_min=None)
+        self.assertEqual(self.controller.timer.remaining, 25 * 60)
+
+    def test_archive_and_delete_clear_the_focus(self):
+        group = self.controller.create_group("Estudos", "#F2B33D")
+        task = self.controller.add_task("Capítulo", group_id=group["id"])
+        self.controller.focus(task["id"])
+        self.controller.archive_group(group["id"])
+        self.assertIsNone(self.controller.tracker.active_task_id)
+        self.assertNotIn(group["id"], [c.id for c in self.controller.group_cards()])
+        self.assertIn(group["id"], [c.id for c in self.controller.group_cards(include_archived=True)])
+        self.controller.archive_group(group["id"], archived=False)
+        self.assertIn(group["id"], [c.id for c in self.controller.group_cards()])
+        self.controller.focus(task["id"])
+        self.assertEqual(self.controller.group_task_count(group["id"]), 1)
+        self.controller.delete_group(group["id"])
+        self.assertIsNone(self.controller.tracker.active_task_id)
+        self.assertIsNone(self.controller.repo.get_task(task["id"]))
+
+    def test_deleting_the_last_group_recreates_a_default_one(self):
+        for card in self.controller.group_cards():
+            self.controller.delete_group(card.id)
+        self.assertEqual(self.controller.repo.default_group_id() in [c.id for c in self.controller.group_cards()], True)
+
+
+class DataAndSoundTest(ControllerTest):
+    def test_export(self):
+        self.controller.add_task("Relatório", estimate_min=30)
+        path = Path(self._tmp.name) / "export.json"
+        count = self.controller.export_data(path)
+        data = json.loads(path.read_text())
+        self.assertEqual([t["title"] for t in data["tasks"]], ["Relatório"])
+        self.assertGreaterEqual(count, 2)
+
+    def test_sound_preview_uses_the_injected_player(self):
+        self.controller.test_sound("bell")
+        self.assertEqual(self.sounds, ["bell"])
+
+    def test_today_view_only_task(self):
+        a = self.controller.add_task("A")
+        self.controller.add_task("B")
+        view = self.controller.today_view(only_task_id=a["id"])
+        self.assertEqual([t.title for t in view.visible_tasks], ["A"])
 
 
 class CompleteCurrentTest(ControllerTest):

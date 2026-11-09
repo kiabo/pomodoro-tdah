@@ -82,7 +82,8 @@ def next_day(day):
     return (date.fromisoformat(_day_str(day)) + timedelta(days=1)).isoformat()
 
 
-def build_today(repo, day, query="", group_id=None):
+def build_today(repo, day, query="", group_id=None, only_task_id=None):
+    """only_task_id: mostra só essa tarefa na lista ("uma coisa por vez"); os totais seguem do dia todo."""
     day = _day_str(day)
     tasks = repo.list_for_day(day)
     groups = repo.list_groups()
@@ -106,6 +107,8 @@ def build_today(repo, day, query="", group_id=None):
     needle = (query or "").strip().casefold()
 
     def visible(task):
+        if only_task_id is not None and task.id != only_task_id:
+            return False
         if group_id is not None and task.group_id != group_id:
             return False
         if not needle:

@@ -9,7 +9,9 @@ from gi.repository import Gdk, GLib, Gtk
 from . import dialogs
 from .layout import button
 from .dialogs import new_task
-from .pages.placeholder import BasicSettingsPage, PlaceholderPage
+from .pages.groups import GroupsPage
+from .pages.placeholder import PlaceholderPage
+from .pages.settings_page import SettingsPage
 from .pages.task_editor import TaskEditorPage
 from .pages.today import TodayPage
 from .sidebar import Sidebar
@@ -42,16 +44,18 @@ class MainWindow(Gtk.Window):
         self.stack = Gtk.Stack()
         self.stack.set_hexpand(True)
         self.editor = TaskEditorPage(controller)
+        self.groups = GroupsPage(controller)
+        self.settings_page = SettingsPage(controller)
+        self._show_all_override = False
         self.pages = {
             "today": self.today,
             "task": self.editor,
             "plan": PlaceholderPage("FIM DO DIA", "Revisar e planejar amanhã",
                                     "Aqui você vai revisar o que ficou e reanotar o dia seguinte. Chega na Fase 9."),
-            "groups": PlaceholderPage("ORGANIZAÇÃO", "Grupos de tarefas",
-                                      "Criar e editar grupos, cores e ciclos próprios. Chega na Fase 6."),
+            "groups": self.groups,
             "analysis": PlaceholderPage("✦ ANÁLISE DA IA", "Como foi sua semana",
                                         "Previsto contra real, padrões e previsões da IA. Chega na Fase 8."),
-            "settings": BasicSettingsPage(controller),
+            "settings": self.settings_page,
         }
         for name, page in self.pages.items():
             self.stack.add_named(page, name)
@@ -68,6 +72,8 @@ class MainWindow(Gtk.Window):
         self.sidebar.connect("group-selected", lambda *_: self.refresh_tasks())
         self.today.connect("query-changed", lambda *_: self.refresh_tasks())
         self.today.connect("new-task", lambda *_: self.open_new_task_dialog())
+        self.today.connect("show-all-tasks", lambda *_: self._set_show_all(True))
+        self.groups.connect("add-recurring", lambda _g, group_id: self.open_new_task_dialog(group_id))
         self.today.task_list.on_edit = self.open_task_editor
         self.editor.connect("back", lambda *_: self._leave_editor())
         self.editor.connect("open-task", lambda _e, task_id: self.editor.load(task_id))
@@ -81,6 +87,8 @@ class MainWindow(Gtk.Window):
     # ---- navegação ------------------------------------------------------
 
     def show_page(self, name):
+        if name == "groups":
+            self.groups.refresh()
         self.stack.set_visible_child_name(name)
         self.sidebar.set_page("today" if name == "task" else name)
 
@@ -128,13 +136,15 @@ class MainWindow(Gtk.Window):
     def _on_event(self, kind):
         if not self.get_visible():
             return                      # escondida na bandeja: refaz tudo ao reaparecer ("map")
-        editing = self.stack.get_visible_child_name() == "task"
+        page = self.stack.get_visible_child_name()
         if kind == "tick":
             self.refresh_timer()
         else:
             self.refresh_all()
-            if editing:
+            if page == "task":
                 self.editor.on_data(kind)
+            elif page == "groups":
+                self.groups.on_data(kind)
 
     def refresh_all(self):
         self.refresh_tasks()
@@ -146,15 +156,31 @@ class MainWindow(Gtk.Window):
         group_id = self.sidebar.group_filter
         query = self.today.query
         filtered = bool(query) or group_id is not None
-        view = controller.today_view(query=query, group_id=group_id)
-        full = controller.today_view() if filtered else view
+        only = self._one_thing_task()
+        view = controller.today_view(query=query, group_id=group_id, only_task_id=only)
+        full = controller.today_view() if (filtered or only) else view
         context = controller.focus_context(full)
         group_name = next((g["name"] for g in full.all_groups if g["id"] == group_id), None)
         self.today.new_task_group = group_id
-        self.today.refresh(view, context, filtered, group_name)
+        self.today.refresh(view, context, filtered, group_name, one_thing=only is not None)
         # Totais da barra lateral e do cabeçalho valem para o dia inteiro, não para o filtro.
         self.sidebar.set_data(full, controller.settings["free_minutes_per_day"])
         self.sidebar.set_focus_title(context["subtask_title"] or context["task_title"])
+
+    def _one_thing_task(self):
+        """Tarefa a mostrar sozinha ("uma coisa por vez"), ou None quando a regra não se aplica."""
+        controller = self.controller
+        running = controller.timer.running and controller.timer.phase.value == "work"
+        if not running:
+            self._show_all_override = False         # só vale enquanto o foco atual durar
+        task_id = controller.tracker.active_task_id
+        if (controller.settings["one_thing_at_a_time"] and running and task_id and not self._show_all_override):
+            return task_id
+        return None
+
+    def _set_show_all(self, value):
+        self._show_all_override = value
+        self.refresh_tasks()
 
     def refresh_timer(self):
         self.sidebar.refresh_timer()

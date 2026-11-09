@@ -48,6 +48,11 @@ class GroupTest(RepoTest):
             self.repo.update_group(self.group["id"], cor="#000")
         with self.assertRaises(ValueError):
             self.repo.create_group("X", work_min=-5)
+        with self.assertRaises(ValueError):
+            self.repo.create_group("X", color="roxo")
+        with self.assertRaises(ValueError):
+            self.repo.update_group(self.group["id"], color="#FFF")
+        self.assertEqual(self.repo.update_group(self.group["id"], color="#e879a6")["color"], "#E879A6")
         with self.assertRaises(KeyError):
             self.repo.update_group("nao-existe", name="X")
 

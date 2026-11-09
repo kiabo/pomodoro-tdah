@@ -419,3 +419,40 @@ entry.sub-entry:focus { border-color: #5B5BD6; background-color: #FFFFFF; box-sh
 .sub-row-active { background-color: #F1F0FD; border-radius: 10px; }
 .drop-before { border-top: 2px solid #5B5BD6; }
 .drop-after { border-bottom: 2px solid #5B5BD6; }
+
+/* ---- paleta de cores e controles de configuração ------------------------------ */
+
+button.swatch {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    outline-style: none;
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
+}
+button.swatch:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); border-radius: 999px; }
+
+scale.slider-opacity trough {
+    min-height: 6px;
+    border-radius: 3px;
+    background-color: #E2DCD1;
+    background-image: none;
+    border: none;
+}
+scale.slider-opacity highlight { background-color: #5B5BD6; background-image: none; border-radius: 3px; border: none; }
+scale.slider-opacity slider {
+    min-width: 18px;
+    min-height: 18px;
+    border-radius: 9px;
+    background-color: #FFFFFF;
+    background-image: none;
+    border: 2px solid #5B5BD6;
+    box-shadow: none;
+}
+.setting-title { font-size: 13px; }
+.setting-hint { font-size: 11px; color: #8A857C; }
+.tab-bar { padding: 4px; }
+.recurring-row { background-color: #FAF7F2; border-radius: 8px; padding: 8px 10px; }
+entry.stepper-entry.stepper-small { font-size: 15px; }

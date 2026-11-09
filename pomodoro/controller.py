@@ -12,7 +12,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import db, settings as settings_store, today as today_model
+from . import db, export, groups as groups_model, settings as settings_store, today as today_model
 from .repository import Repository
 from .timer import PHASE_LABELS, Phase, PomodoroTimer
 from .tracking import Tracker
@@ -124,8 +124,9 @@ class Controller:
     def today(self):
         return self._today()
 
-    def today_view(self, query="", group_id=None):
-        return today_model.build_today(self.repo, self.today(), query=query, group_id=group_id)
+    def today_view(self, query="", group_id=None, only_task_id=None):
+        return today_model.build_today(self.repo, self.today(), query=query, group_id=group_id,
+                                       only_task_id=only_task_id)
 
     def focus_context(self, view=None):
         """Dados da tarefa/subtarefa em foco para o painel do timer e a barra lateral.
@@ -194,6 +195,53 @@ class Controller:
     def set_subtask_done(self, subtask_id, done):
         self.repo.set_subtask_done(subtask_id, done)
         self._changed()
+
+    # ---- grupos -----------------------------------------------------------
+
+    def group_cards(self, include_archived=False):
+        return groups_model.build_group_cards(self.repo, self.today(), include_archived=include_archived)
+
+    def group_task_count(self, group_id):
+        return len(self.repo.list_tasks(group_id=group_id))
+
+    def create_group(self, name, color, work_min=None, short_break_min=None, require_estimate=False):
+        group = self.repo.create_group(name, color=color, work_min=work_min, short_break_min=short_break_min,
+                                       require_estimate=require_estimate)
+        self._changed()
+        return group
+
+    def update_group(self, group_id, **fields):
+        """Edita o grupo. Se ele é o da tarefa em foco, o timer passa a usar o ciclo novo."""
+        group = self.repo.update_group(group_id, **fields)
+        self.tracker.reapply_overrides()
+        self._changed()
+        return group
+
+    def archive_group(self, group_id, archived=True):
+        self.repo.archive_group(group_id, archived)
+        active = self.tracker.active_task_id
+        task = self.repo.get_task(active) if active else None
+        if archived and task and task["group_id"] == group_id:
+            self.tracker.set_active(None)
+        self._changed()
+
+    def delete_group(self, group_id):
+        """Apaga o grupo e todas as tarefas dele."""
+        active = self.tracker.active_task_id
+        task = self.repo.get_task(active) if active else None
+        if task and task["group_id"] == group_id:
+            self.tracker.set_active(None)
+        self.repo.delete_group(group_id)
+        self._changed()
+
+    # ---- dados e sons -----------------------------------------------------
+
+    def export_data(self, path):
+        """Grava todas as tarefas, subtarefas e sessões em JSON. Devolve o nº de registros."""
+        return export.write_export(self.conn, path, now=self._now)
+
+    def test_sound(self, sound):
+        self._play_sound(sound)
 
     # ---- edição completa de uma tarefa ------------------------------------
 

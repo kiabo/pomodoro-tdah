@@ -49,3 +49,27 @@ def bar_layout(days, width, height, label_height=22, bar_width=22, pair_gap=4, s
             "pair_x0": x0, "pair_x1": x0 + pair_w, "bars": bars,
         })
     return layout
+
+
+def cycle_segments(work_min, short_min, long_min, cycles):
+    """Sequência de um ciclo completo: [{"kind": "work"|"short"|"long", "minutes": n}, ...]."""
+    segments = []
+    for index in range(max(cycles, 1)):
+        segments.append({"kind": "work", "minutes": work_min})
+        last = index == max(cycles, 1) - 1
+        segments.append({"kind": "long" if last else "short", "minutes": long_min if last else short_min})
+    return segments
+
+
+def cycle_bar_layout(segments, width, gap=3, min_width=3):
+    """Posiciona os segmentos do ciclo numa barra, proporcionais à duração: [{kind, minutes, x, w}]."""
+    if not segments:
+        return []
+    total = sum(max(s["minutes"], 0) for s in segments) or 1
+    usable = max(width - gap * (len(segments) - 1), len(segments) * min_width)
+    layout, x = [], 0.0
+    for segment in segments:
+        w = max(usable * max(segment["minutes"], 0) / total, min_width)
+        layout.append({"kind": segment["kind"], "minutes": segment["minutes"], "x": x, "w": w})
+        x += w + gap
+    return layout

@@ -2,7 +2,7 @@
 
   scripts/preview.sh                  abre a janela com os dados de exemplo (num banco temporário)
   scripts/preview.sh --png saida.png  gera uma imagem, sem abrir janela
-  scripts/preview.sh --screen editor|new-task [--png saida.png]   outras telas
+  scripts/preview.sh --screen editor|new-task|groups|settings[-compact|-sound|-ai] [--png saida.png]
 """
 
 import argparse
@@ -62,6 +62,22 @@ def fill_sample_data(controller):
 
     controller.add_task("Preparar apresentação para o cliente", 80, work["id"])
     controller.add_task("Lavar roupa", 30, home["id"])
+    # Histórico antigo (já concluído em outros dias): alimenta precisão e viés dos grupos.
+    for group, history in ((work, ((30, 39), (30, 33), (30, 36))), (home, ((40, 30), (30, 22), (20, 15)))):
+        for index, (estimate, real) in enumerate(history):
+            old = repo.create_task(group["id"], f"{group['name']} antiga {index}", estimate_min=estimate,
+                                   scheduled_for="2026-11-02")
+            worked(old, real * 60)
+            repo.set_task_status(old["id"], "done")
+            repo.conn.execute("UPDATE tasks SET done_at = '2026-11-02T18:00:00' WHERE id = ?", (old["id"],))
+    # Recorrentes (agendadas para depois, para não aparecerem em Hoje).
+    controller.create_task_full("Responder e-mails", group_id=work["id"], day="2026-11-10", estimate_min=20,
+                                repeat_rule="weekdays")
+    controller.create_task_full("Escrever relatório mensal", group_id=work["id"], day="2026-12-09", estimate_min=90,
+                                repeat_rule="monthly:9")
+    repo.update_group(work["id"], work_min=50, short_break_min=10, require_estimate=True)
+    legacy = repo.create_group("Projeto antigo", color="#8A857C")
+    repo.archive_group(legacy["id"])
     controller.add_task("Marcar dentista", 10, home["id"])
 
     # Histórico do relatório: manhã com uma sessão interrompida por distração.
@@ -92,6 +108,9 @@ def build_preview():
     return controller, MainWindow(controller)
 
 
+SCREENS = ("today", "editor", "new-task", "groups", "settings", "settings-compact", "settings-sound", "settings-ai")
+
+
 def _pump():
     for _ in range(6):
         while Gtk.events_pending():
@@ -118,6 +137,11 @@ def render_png(path, width=1280, height=860, screen="today"):
         if screen == "editor":
             report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
             window.open_task_editor(report["id"])
+        elif screen == "groups":
+            window.show_page("groups")
+        elif screen.startswith("settings"):
+            window.show_page("settings")
+            window.settings_page.tabs.set_value(screen.partition("-")[2] or "focus", emit=True)
         content = window.get_child()
         window.remove(content)
         offscreen.add(content)
@@ -136,7 +160,7 @@ def render_png(path, width=1280, height=860, screen="today"):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--png", help="salva a janela neste arquivo PNG em vez de abri-la")
-    parser.add_argument("--screen", choices=("today", "editor", "new-task"), default="today")
+    parser.add_argument("--screen", choices=SCREENS, default="today")
     parser.add_argument("--width", type=int, default=1280, help="largura da imagem (com --png)")
     args = parser.parse_args()
     if args.png:
@@ -148,6 +172,11 @@ def main():
     if args.screen == "editor":
         report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
         window.open_task_editor(report["id"])
+    elif args.screen == "groups":
+        window.show_page("groups")
+    elif args.screen.startswith("settings"):
+        window.show_page("settings")
+        window.settings_page.tabs.set_value(args.screen.partition("-")[2] or "focus", emit=True)
     elif args.screen == "new-task":
         from gi.repository import GLib
         GLib.idle_add(lambda: window.open_new_task_dialog() and False)

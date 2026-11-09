@@ -3,7 +3,7 @@ import unittest
 from datetime import date, datetime
 
 from pomodoro.ui.format import (delta_text, format_clock, format_date_eyebrow, format_minutes,
-                                describe_day, estimate_note, format_real, interval_text, parse_duration, parse_signed_minutes,
+                                cycle_summary, describe_day, estimate_note, format_real, interval_text, parse_duration, parse_signed_minutes,
                                 phase_eyebrow, pomodoros_estimate, progress_note, session_line)
 from pomodoro.timer import Phase
 
@@ -109,6 +109,13 @@ class EstimateNoteTest(unittest.TestCase):
         self.assertEqual(estimate_note(None, 55), ("Sem previsão própria · as subtarefas somam 55m", True))
         self.assertTrue(estimate_note(0, None)[0].startswith("Sem previsão ainda"))
         self.assertEqual(estimate_note(100, None, work_min=50), ("≈ 2 pomodoros", True))
+
+
+class CycleSummaryTest(unittest.TestCase):
+    def test_summary(self):
+        self.assertEqual(cycle_summary(25, 5, 15, 4), "Ciclo completo: 2h 10m · 4 focos de 25 min, 3 pausas curtas e 1 longa")
+        self.assertEqual(cycle_summary(50, 10, 20, 2), "Ciclo completo: 2h 10m · 2 focos de 50 min, 1 pausa curta e 1 longa")
+        self.assertEqual(cycle_summary(25, 5, 15, 1), "Ciclo completo: 40m · 1 foco de 25 min, 1 pausa longa")
 
 
 class SignedMinutesTest(unittest.TestCase):
