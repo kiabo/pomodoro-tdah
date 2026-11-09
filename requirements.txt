@@ -1,0 +1,2 @@
+# PyGObject e GTK vêm do sistema (veja o README). Só a IA na nuvem precisa de pacote Python, e é opcional:
+anthropic>=0.40

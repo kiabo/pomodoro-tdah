@@ -9,9 +9,13 @@ Notificações e som entram por injeção (notify, play_sound), assim os testes 
 """
 
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from .ai import analysis as ai_analysis, summary as ai_summary
+from .ai.claude_client import AIUnavailable, ClaudeClient
+from .ai.estimator import Estimator
 from . import db, export, groups as groups_model, settings as settings_store, today as today_model
 from .repository import Repository
 from .timer import PHASE_LABELS, Phase, PomodoroTimer
@@ -22,7 +26,7 @@ log = logging.getLogger(__name__)
 
 class Controller:
     def __init__(self, data_dir=None, settings=None, scheduler=None, notify=None, play_sound=None,
-                 now=datetime.now, today=date.today):
+                 now=datetime.now, today=date.today, run_async=None, claude_factory=None):
         self.data_dir = Path(data_dir or settings_store.data_dir())
         self.settings = settings if settings is not None else settings_store.load_settings(self.data_dir)
         self.conn = db.open_database(self.data_dir)
@@ -32,9 +36,11 @@ class Controller:
         self._notify = notify or (lambda message: None)
         self._play_sound = play_sound or (lambda sound: None)
         self._subscribers = []
-        # Estimador de tempo (Fase 8). Precisa de suggest_estimate(repo, title, group_id, user_estimate_min)
+        # Estimador de tempo: suggest_estimate(repo, title, group_id, user_estimate_min)
         # -> {"minutes": int, "note": str} | None e suggest_subtasks(repo, title, group_id) -> [(título, min)].
-        self.estimator = None
+        self.estimator = Estimator()
+        self._run_async = run_async or _run_in_thread
+        self._claude_factory = claude_factory or ClaudeClient
         self.last_alert = None          # dados do último alerta de hiperfoco (para o modo compacto)
         self.last_pomodoro = None       # dados do último pomodoro concluído (para "como foi?")
 
@@ -396,20 +402,88 @@ class Controller:
             self.timer.start()
         self._changed()
 
-    # ---- sugestões da IA (Fase 8) -----------------------------------------
+    # ---- IA ---------------------------------------------------------------
 
-    def suggest_estimate(self, title, group_id=None, user_estimate_min=None):
-        """{"minutes", "note"} sugerido pela IA para o que está sendo criado, ou None."""
-        if self.estimator is None or not (title or "").strip():
+    @property
+    def ai_enabled(self):
+        return bool(self.settings.get("ai_enabled", True)) and self.estimator is not None
+
+    def cloud_ready(self):
+        """A IA na nuvem está ligada e há uma chave configurada."""
+        return self.ai_enabled and bool(self.settings.get("ai_cloud_enabled")) \
+            and bool(settings_store.api_key(self.settings))
+
+    def _claude(self):
+        return self._claude_factory(settings_store.api_key(self.settings), self.settings.get("ai_model"))
+
+    def suggest_estimate(self, title, group_id=None, user_estimate_min=None, task_id=None):
+        """{"minutes", "note", ...} sugerido pela IA local para o que está sendo criado, ou None."""
+        if not self.ai_enabled or not (title or "").strip():
             return None
         return self.estimator.suggest_estimate(
-            self.repo, title=title, group_id=group_id, user_estimate_min=user_estimate_min)
+            self.repo, title=title, group_id=group_id, user_estimate_min=user_estimate_min, task_id=task_id)
 
     def suggest_subtasks(self, title, group_id=None):
-        """[(título, minutos)] sugeridos pela IA para quebrar a tarefa; [] sem IA."""
-        if self.estimator is None or not (title or "").strip():
+        """[(título, minutos)] reaproveitados de tarefas parecidas já concluídas; [] sem base."""
+        if not self.ai_enabled or not (title or "").strip():
             return []
         return list(self.estimator.suggest_subtasks(self.repo, title=title, group_id=group_id))
+
+    def suggest_subtasks_async(self, title, group_id, done):
+        """done(lista, erro): usa tarefas parecidas do histórico; sem elas, o Claude (se estiver ligado)."""
+        local = self.suggest_subtasks(title, group_id)
+        if local or not self.cloud_ready() or not (title or "").strip():
+            done(local, None)
+            return
+        self.cloud_subtasks(title, lambda result, error: done(result or [], error))
+
+    def analysis(self, period="week"):
+        return ai_analysis.build_analysis(self.repo, self._today(), period, self.estimator)
+
+    def apply_ai_predictions(self, predictions):
+        """Grava a estimativa da IA como a previsão das tarefas. Retorna quantas mudaram."""
+        changed = 0
+        for item in predictions:
+            task = self.repo.get_task(item.task_id)
+            if task and task["status"] in ("todo", "doing") and item.ai_min and task["estimate_min"] != item.ai_min:
+                self.repo.update_task(task["id"], estimate_min=item.ai_min, ai_estimate_min=item.ai_min)
+                changed += 1
+        if changed:
+            self.tracker.invalidate()
+            self._changed()
+        return changed
+
+    def _cloud_call(self, work, done):
+        """Roda `work(client)` fora da tela. done(resultado, erro) volta no laço principal; nunca usa o SQLite."""
+        if not self.cloud_ready():
+            done(None, "Ligue a IA na nuvem e informe a chave em Configurações → IA e dados.")
+            return
+        client = self._claude()
+
+        def job():
+            try:
+                return work(client), None
+            except AIUnavailable as error:
+                return None, str(error)
+            except Exception:
+                log.exception("erro inesperado na IA em nuvem")
+                return None, "Não foi possível falar com o Claude agora."
+        self._run_async(job, lambda outcome: done(*outcome))
+
+    def cloud_subtasks(self, title, done):
+        context = ai_summary.build_summary(self.repo, limit=20)
+        self._cloud_call(lambda client: client.subtasks(title, context), done)
+
+    def cloud_insights(self, done):
+        context = ai_summary.build_summary(self.repo)
+        self._cloud_call(lambda client: client.insights(context), done)
+
+    def cloud_answer(self, question, done):
+        context = ai_summary.build_summary(self.repo)
+        self._cloud_call(lambda client: client.answer(question, context), done)
+
+    def test_ai_connection(self, done):
+        self._cloud_call(lambda client: client.test_connection(), done)
 
     # ---- configurações --------------------------------------------------
 
@@ -426,3 +500,12 @@ class Controller:
         self.tracker.shutdown()
         settings_store.save_settings(self.settings, self.data_dir)
         self.conn.close()
+
+
+def _run_in_thread(job, deliver):
+    """Executa `job` numa thread e entrega o resultado no laço principal do GTK."""
+    def target():
+        outcome = job()
+        from gi.repository import GLib
+        GLib.idle_add(lambda: deliver(outcome) and False)
+    threading.Thread(target=target, daemon=True).start()

@@ -17,7 +17,7 @@ from pomodoro.ui.pages.task_editor import TaskEditorPage, _SubtaskRow  # noqa: E
 
 
 class FakeEstimator:
-    def suggest_estimate(self, repo, title, group_id, user_estimate_min):
+    def suggest_estimate(self, repo, title, group_id, user_estimate_min, **_kwargs):
         return {"minutes": 102, "note": "Baseado em 6 relatórios"}
 
     def suggest_subtasks(self, repo, title, group_id):
@@ -86,6 +86,8 @@ class LoadTest(EditorTest):
                          ("weekly:4", "Toda semana (sexta)"))
 
     def test_no_ai_message_and_hidden_buttons_without_estimator(self):
+        self.controller.estimator = None
+        self.page.load(self.task_id)
         self.assertIn("Ainda não há histórico", self.page.ai_note.get_text())
         self.assertEqual(self.page.ai_value.get_text(), "—")
         self.assertFalse(self.page.ai_use.get_visible())

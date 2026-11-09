@@ -260,7 +260,7 @@ class NewTaskDialog(Gtk.Dialog):
         return False
 
     def _refresh_subtask_link(self):
-        has_ai = self.controller.estimator is not None
+        has_ai = self.controller.ai_enabled
         self.ai_subs_link.set_visible(has_ai and bool(self.title_entry.get_text().strip()))
 
     def _use_suggestion(self):
@@ -274,11 +274,20 @@ class NewTaskDialog(Gtk.Dialog):
 
     def _fill_ai_subtasks(self):
         title = self.title_entry.get_text().strip()
-        suggested = self.controller.suggest_subtasks(title, self.group_id)
-        for row in list(self._rows):
-            self.remove_subtask_row(row)
-        for sub_title, minutes in suggested:
-            self.add_subtask_row(title=sub_title, minutes=minutes, focus=False)
+        self.ai_subs_link.set_sensitive(False)
+
+        def finished(suggested, error):
+            self.ai_subs_link.set_sensitive(True)
+            if not suggested:
+                self.error_label.set_text(error or "A IA não encontrou uma divisão para esta tarefa.")
+                self.error_label.show()
+                return
+            for row in list(self._rows):
+                self.remove_subtask_row(row)
+            for sub_title, minutes in suggested:
+                self.add_subtask_row(title=sub_title, minutes=minutes, focus=False)
+
+        self.controller.suggest_subtasks_async(title, self.group_id, finished)
 
     # ---- subtarefas ---------------------------------------------------------
 

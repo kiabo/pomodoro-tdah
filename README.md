@@ -12,6 +12,15 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
 
 `python3-gi-cairo` é necessário para o anel do timer e os gráficos.
 
+## IA
+
+- **Local (sempre disponível, sem internet):** estima tempos a partir do seu histórico previsto × real
+  (tarefas parecidas, mesmo grupo, histórico geral) e alimenta a tela Análise.
+- **Claude (opcional):** análise em texto, perguntas livres e quebra de tarefas em subtarefas.
+  `pip install anthropic`, depois em Configurações → IA e dados: ligue "Usar o Claude", cole a chave
+  (ou exporte `ANTHROPIC_API_KEY`) e use "Testar conexão". Só títulos, grupos e tempos são enviados.
+  O modelo padrão é `claude-opus-5-5`; dá para trocar por um menor na mesma tela.
+
 ## Comandos
 
 | O quê | Como |
@@ -20,7 +29,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
 | Todos os testes | `scripts/test.sh` (os de interface precisam de tela e do `python3-gi-cairo`) |
 | Rodar só na bandeja | `./run.sh --hidden` |
 | Modo compacto | botão "Modo compacto" na janela, ou pelo ícone da bandeja. Arraste para mover; duplo clique vira pílula; clique direito: menu |
-| Ver as telas com dados de exemplo | `scripts/preview.sh [--screen editor\|new-task\|groups\|settings[-compact\|-sound\|-ai]\|compact-focus\|-expanded\|-break\|-mini\|-alert\|-rating] [--png arquivo.png]` |
+| Ver as telas com dados de exemplo | `scripts/preview.sh [--screen editor\|new-task\|groups\|analysis\|settings[-compact\|-sound\|-ai]\|compact-focus\|-expanded\|-break\|-mini\|-alert\|-rating] [--png arquivo.png]` |
 | Galeria de componentes | `scripts/gallery.sh` (ou `--png arquivo.png`) |
 | Atalhos | `Ctrl K` busca · `Ctrl N` nova tarefa (modal) · `Ctrl Enter` cria no modal · duplo clique numa tarefa abre o editor · clique direito: menu |
 

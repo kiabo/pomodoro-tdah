@@ -12,6 +12,7 @@ from ..format import cycle_summary
 from ..layout import button, expand, flow, hbox, label, vbox
 from ..theme import style
 from ..widgets import ChoiceGroup, CycleBar, Select, TimeStepper, make_bar, make_toggle
+from ...ai.claude_client import MODELS
 from ...settings import COMPACT_FIELDS
 
 TABS = [("focus", "Pomodoro e foco"), ("compact", "Modo compacto"), ("sound", "Sons e notificações"),
@@ -304,6 +305,15 @@ class SettingsPage(Gtk.Box):
         self.key_entry.connect("focus-out-event", lambda *_: self._commit_key() or False)
         self.key_entry.set_sensitive(s["ai_cloud_enabled"])
         cloud = make_toggle(s["ai_cloud_enabled"], self._on_cloud_toggled)
+        models = [(m, m) for m in MODELS]
+        if s["ai_model"] not in MODELS:
+            models.append((s["ai_model"], s["ai_model"]))
+        self.model_select = Select(models, s["ai_model"], width=190)
+        self.model_select.set_sensitive(s["ai_cloud_enabled"])
+        self.model_select.connect("changed", lambda _s, value: self._apply({"ai_model": value}))
+        self.ai_status = label("", "small", "muted", wrap=True)
+        self.test_button = button("Testar conexão", "btn-secondary", on_click=self._on_test_connection)
+        self.test_button.set_sensitive(s["ai_cloud_enabled"])
         ai_card = section(
             "Inteligência artificial",
             setting_row("Estimativas locais", "Calcula previsões a partir do seu histórico, sem internet",
@@ -312,6 +322,8 @@ class SettingsPage(Gtk.Box):
                         "Envia só títulos, grupos e tempos.", cloud),
             setting_row("Chave da API", "Fica só neste computador. Se vazia, usa a variável ANTHROPIC_API_KEY.",
                         self.key_entry),
+            setting_row("Modelo", "O padrão é o mais capaz; troque por um menor para gastar menos.", self.model_select),
+            hbox(self.test_button, expand(self.ai_status), spacing=12),
             width=520,
         )
         self.export_status = label("", "small", "muted", wrap=True)
@@ -330,7 +342,20 @@ class SettingsPage(Gtk.Box):
 
     def _on_cloud_toggled(self, value):
         self.key_entry.set_sensitive(value)
+        self.model_select.set_sensitive(value)
+        self.test_button.set_sensitive(value)
         self._apply({"ai_cloud_enabled": value})
+
+    def _on_test_connection(self):
+        self._commit_key()
+        self.ai_status.set_text("Testando…")
+        self.test_button.set_sensitive(False)
+
+        def finished(result, error):
+            self.test_button.set_sensitive(True)
+            self.ai_status.set_text("✓ Conectado ao Claude." if not error else error)
+
+        self.controller.test_ai_connection(finished)
 
     def _commit_key(self):
         text = self.key_entry.get_text().strip()

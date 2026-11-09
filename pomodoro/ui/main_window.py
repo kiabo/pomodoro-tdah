@@ -9,6 +9,7 @@ from gi.repository import Gdk, GLib, Gtk
 from . import dialogs
 from .layout import button
 from .dialogs import new_task
+from .pages.analysis import AnalysisPage
 from .pages.groups import GroupsPage
 from .pages.placeholder import PlaceholderPage
 from .pages.settings_page import SettingsPage
@@ -46,6 +47,7 @@ class MainWindow(Gtk.Window):
         self.editor = TaskEditorPage(controller)
         self.groups = GroupsPage(controller)
         self.settings_page = SettingsPage(controller)
+        self.analysis = AnalysisPage(controller)
         self._show_all_override = False
         self.pages = {
             "today": self.today,
@@ -53,8 +55,7 @@ class MainWindow(Gtk.Window):
             "plan": PlaceholderPage("FIM DO DIA", "Revisar e planejar amanhã",
                                     "Aqui você vai revisar o que ficou e reanotar o dia seguinte. Chega na Fase 9."),
             "groups": self.groups,
-            "analysis": PlaceholderPage("✦ ANÁLISE DA IA", "Como foi sua semana",
-                                        "Previsto contra real, padrões e previsões da IA. Chega na Fase 8."),
+            "analysis": self.analysis,
             "settings": self.settings_page,
         }
         for name, page in self.pages.items():
@@ -89,6 +90,8 @@ class MainWindow(Gtk.Window):
     def show_page(self, name):
         if name == "groups":
             self.groups.refresh()
+        elif name == "analysis":
+            self.analysis.refresh()
         self.stack.set_visible_child_name(name)
         self.sidebar.set_page("today" if name == "task" else name)
 
@@ -145,6 +148,8 @@ class MainWindow(Gtk.Window):
                 self.editor.on_data(kind)
             elif page == "groups":
                 self.groups.on_data(kind)
+            elif page == "analysis" and kind == "data":
+                self.analysis.on_data(kind)
 
     def refresh_all(self):
         self.refresh_tasks()

@@ -273,7 +273,7 @@ class CreateTaskFullTest(ControllerTest):
 
 class EstimatorHookTest(ControllerTest):
     class FakeEstimator:
-        def suggest_estimate(self, repo, title, group_id, user_estimate_min):
+        def suggest_estimate(self, repo, title, group_id, user_estimate_min, **_kwargs):
             return {"minutes": 80, "note": f"para {title}"} if user_estimate_min == 45 else None
 
         def suggest_subtasks(self, repo, title, group_id):

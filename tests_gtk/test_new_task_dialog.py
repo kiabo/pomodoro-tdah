@@ -13,7 +13,7 @@ from pomodoro.ui.dialogs.new_task import NewTaskDialog, run_new_task_dialog  # n
 
 
 class FakeEstimator:
-    def suggest_estimate(self, repo, title, group_id, user_estimate_min):
+    def suggest_estimate(self, repo, title, group_id, user_estimate_min, **_kwargs):
         if user_estimate_min == 45:
             return {"minutes": 80, "note": f"Para “{title}”"}
         return None
@@ -159,6 +159,7 @@ class SubtasksTest(DialogTest):
 
 class AiTest(DialogTest):
     def test_no_estimator_no_card_and_no_subtask_link(self):
+        self.controller.estimator = None
         self.type_title("Preparar apresentação")
         self.dialog.set_estimate(45)
         self.dialog._refresh_suggestion()

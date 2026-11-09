@@ -341,7 +341,7 @@ class TaskEditorPage(Gtk.Box):
         self._fill_ai(detail)
         self._fill_history(detail)
         self._fill_list()
-        self.ai_subs_button.set_visible(self.controller.estimator is not None)
+        self.ai_subs_button.set_visible(self.controller.ai_enabled)
 
     def _fill_real(self, detail, live_seconds=None):
         seconds = detail["real_seconds"] if live_seconds is None else live_seconds
@@ -351,15 +351,17 @@ class TaskEditorPage(Gtk.Box):
 
     def _fill_ai(self, detail):
         task = detail["task"]
-        suggestion = self.controller.suggest_estimate(task["title"], task["group_id"], task["estimate_min"])
+        suggestion = self.controller.suggest_estimate(task["title"], task["group_id"], task["estimate_min"],
+                                                      task_id=task["id"])
         self._ai_suggestion = suggestion
         if suggestion:
             self.ai_value.set_text(format_minutes(suggestion["minutes"]))
             self.ai_note.set_text(suggestion.get("note", ""))
         else:
             self.ai_value.set_text("—")
-            self.ai_note.set_text("Ainda não há histórico parecido para estimar." if self.controller.estimator is None
-                                  else "Sem tarefas parecidas suficientes para estimar.")
+            self.ai_note.set_text("Ainda não há histórico parecido para estimar."
+                                  if self.controller.settings.get("ai_enabled", True)
+                                  else "A IA está desligada em Configurações.")
         self.ai_use.set_visible(bool(suggestion and suggestion["minutes"] != task["estimate_min"]))
 
     def _fill_history(self, detail):
@@ -583,16 +585,24 @@ class TaskEditorPage(Gtk.Box):
 
     def _on_ai_subtasks(self):
         task = self._detail["task"]
-        suggested = self.controller.suggest_subtasks(task["title"], task["group_id"])
-        if not suggested:
-            self.notice("A IA não encontrou uma divisão para esta tarefa.", error=True)
-            return
+        task_id = self.task_id
+        self.ai_subs_button.set_sensitive(False)
 
-        def add_all():
-            for title, minutes in suggested:
-                self.controller.add_subtask(self.task_id, title, minutes)
+        def finished(suggested, error):
+            self.ai_subs_button.set_sensitive(True)
+            if task_id != self.task_id:
+                return
+            if not suggested:
+                self.notice(error or "A IA não encontrou uma divisão para esta tarefa.", error=True)
+                return
 
-        self._try(add_all, structure=True)
+            def add_all():
+                for title, minutes in suggested:
+                    self.controller.add_subtask(task_id, title, minutes)
+
+            self._try(add_all, structure=True)
+
+        self.controller.suggest_subtasks_async(task["title"], task["group_id"], finished)
 
     def _on_duplicate(self):
         copy = self.controller.duplicate_task(self.task_id)

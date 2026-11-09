@@ -55,6 +55,7 @@ DEFAULT_SETTINGS = {
     # IA
     "ai_enabled": True,                # estimativas locais
     "ai_cloud_enabled": False,         # textos/subtarefas via Claude API (opcional)
+    "ai_model": "claude-opus-5-5",     # modelo usado na API do Claude
     "anthropic_api_key": "",           # se vazio, usa a variável ANTHROPIC_API_KEY
 }
 
@@ -85,6 +86,8 @@ def _valid(key, value):
         return isinstance(value, list) and all(v in COMPACT_FIELDS for v in value)
     if key == "compact_idle_opacity":
         return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.2 <= value <= 1.0
+    if key == "ai_model":
+        return isinstance(value, str) and bool(value.strip())
     if isinstance(default, bool):
         return isinstance(value, bool)
     if isinstance(default, int):

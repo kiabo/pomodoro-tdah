@@ -18,14 +18,15 @@ from .. import settings as settings_store
 from ..controller import Controller
 from .compact_window import CompactWindow
 from .dialogs.new_task import NewTaskDialog
+from ..ai.estimator import Estimator
 from .main_window import MainWindow
 from .theme import load_theme, themed_window
 
 
-class PreviewEstimator:
+class PreviewEstimator(Estimator):
     """Estimador fictício, só para mostrar os cartões da IA na pré-visualização."""
 
-    def suggest_estimate(self, repo, title, group_id, user_estimate_min):
+    def suggest_estimate(self, repo, title, group_id, user_estimate_min, **_kwargs):
         if user_estimate_min and "apresent" in title.lower():
             return {"minutes": 80, "note": "Tarefas parecidas (“Montar slides”, “Apresentação trimestral”) "
                                            "levaram em média 1h 20m. Você costuma subestimar apresentações em ~40%."}
@@ -33,8 +34,25 @@ class PreviewEstimator:
             return {"minutes": 102, "note": "Baseado em 6 relatórios anteriores (média +14%)."}
         return None
 
-    def suggest_subtasks(self, repo, title, group_id):
+    def suggest_subtasks(self, repo, title, group_id=None, limit=8):
         return [("Definir 3 mensagens principais", 20), ("Montar os slides no modelo", 40), ("Ensaiar em voz alta", 20)]
+
+
+def _fill_history(controller, work, home):
+    """Tarefas concluídas nos últimos dias, para a tela de análise ter o que mostrar."""
+    repo = controller.repo
+    today = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    rows = ((work, "Escrever relatório semanal", 40, 56, 1), (work, "Escrever relatório de vendas", 30, 44, 2),
+            (work, "Escrever relatório de projeto", 60, 80, 3), (work, "Revisar contrato", 30, 33, 3),
+            (home, "Lavar roupa", 30, 26, 2), (home, "Arrumar a casa", 45, 40, 4), (home, "Lavar louça", 15, 15, 1))
+    for group, title, estimate, real, days_ago in rows:
+        started = today - timedelta(days=days_ago)
+        task = repo.create_task(group["id"], title, estimate_min=estimate, scheduled_for=started.date().isoformat())
+        session = repo.start_session("work", task_id=task["id"], started_at=started)
+        repo.end_session(session, real * 60, completed_phase=True, ended_at=started + timedelta(minutes=real))
+        repo.set_task_status(task["id"], "done")
+        repo.conn.execute("UPDATE tasks SET done_at = ? WHERE id = ?", (started.isoformat(timespec="seconds"), task["id"]))
+    repo.conn.commit()
 
 
 def fill_sample_data(controller):
@@ -89,6 +107,7 @@ def fill_sample_data(controller):
         repo.end_session(session, minutes * 60, interrupted=interrupted, completed_phase=not interrupted,
                          ended_at=started + timedelta(minutes=minutes))
     repo.add_distraction("ligar para o banco", task_id=report["id"])
+    _fill_history(controller, work, home)
     controller.estimator = PreviewEstimator()
 
     controller.focus(report["id"], charts["id"])
@@ -111,7 +130,7 @@ def build_preview():
 
 COMPACT_SCREENS = ("compact-focus", "compact-expanded", "compact-break", "compact-mini", "compact-alert",
                    "compact-rating")
-SCREENS = ("today", "editor", "new-task", "groups", "settings", "settings-compact", "settings-sound",
+SCREENS = ("today", "editor", "new-task", "groups", "analysis", "settings", "settings-compact", "settings-sound",
            "settings-ai") + COMPACT_SCREENS
 
 
@@ -183,8 +202,8 @@ def render_png(path, width=1280, height=860, screen="today"):
         if screen == "editor":
             report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
             window.open_task_editor(report["id"])
-        elif screen == "groups":
-            window.show_page("groups")
+        elif screen in ("groups", "analysis"):
+            window.show_page(screen)
         elif screen.startswith("settings"):
             window.show_page("settings")
             window.settings_page.tabs.set_value(screen.partition("-")[2] or "focus", emit=True)
@@ -218,8 +237,8 @@ def main():
     if args.screen == "editor":
         report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
         window.open_task_editor(report["id"])
-    elif args.screen == "groups":
-        window.show_page("groups")
+    elif args.screen in ("groups", "analysis"):
+        window.show_page(args.screen)
     elif args.screen.startswith("settings"):
         window.show_page("settings")
         window.settings_page.tabs.set_value(args.screen.partition("-")[2] or "focus", emit=True)
