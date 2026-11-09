@@ -36,6 +36,7 @@ class Tracker:
 
         # Cache da tarefa em foco para não consultar o banco a cada segundo.
         self._base_seconds = 0
+        self._sub_base_seconds = 0
         self._estimate_seconds = None
         self._alerted = {}
 
@@ -144,11 +145,14 @@ class Tracker:
     def _refresh_cache(self):
         """Recalcula a base de tempo e a previsão da tarefa em foco."""
         self._base_seconds = 0
+        self._sub_base_seconds = 0
         self._estimate_seconds = None
         if self._task_id is None:
             return
         if self._session_kind == "work":
             self._base_seconds = max(self.repo.real_seconds(self._task_id) - self._saved, 0)
+            if self._subtask_id is not None:
+                self._sub_base_seconds = max(self.repo.real_seconds_subtask(self._subtask_id) - self._saved, 0)
         task = self.repo.get_task(self._task_id)
         if task is not None:
             minutes = task["estimate_min"] or self.repo.subtasks_estimate_sum(self._task_id)
@@ -163,6 +167,12 @@ class Tracker:
         if self._session_kind == "work" and task_id == self._task_id:
             return self._base_seconds + self._seconds
         return self.repo.real_seconds(task_id)
+
+    def live_real_seconds_subtask(self, subtask_id):
+        """Tempo real da subtarefa, incluindo os segundos do pomodoro em andamento."""
+        if self._session_kind == "work" and subtask_id == self._subtask_id:
+            return self._sub_base_seconds + self._seconds
+        return self.repo.real_seconds_subtask(subtask_id)
 
     def _check_hyperfocus(self):
         settings = self._get_settings()

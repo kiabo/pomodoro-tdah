@@ -168,6 +168,21 @@ class Repository:
             f"SELECT * FROM tasks{where} ORDER BY position, created_at", params
         ))
 
+    def list_for_day(self, day):
+        """Tarefas da visão "Hoje" de `day`, na ordem de grupos e posições.
+
+        Entram: pendentes sem data, agendadas para o dia ou atrasadas (ainda não levadas para
+        outro dia), e concluídas naquele dia. Ficam de fora: descartadas e grupos arquivados.
+        """
+        day = _day(day)
+        return _rows(self.conn.execute(
+            "SELECT t.* FROM tasks t JOIN groups g ON g.id = t.group_id WHERE g.archived = 0 AND ("
+            " (t.status IN ('todo', 'doing') AND (t.scheduled_for IS NULL OR t.scheduled_for <= ?))"
+            " OR (t.status = 'done' AND (substr(t.done_at, 1, 10) = ? OR t.scheduled_for = ?)))"
+            " ORDER BY g.position, g.created_at, t.position, t.created_at",
+            (day, day, day),
+        ))
+
     def get_task(self, task_id):
         return _row(self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone())
 
@@ -312,6 +327,20 @@ class Repository:
     def reorder_subtasks(self, task_id, ids):
         self._reorder("subtasks", list(ids), "task_id = ?", (task_id,))
 
+    def subtasks_by_task(self, task_ids):
+        """Subtarefas de várias tarefas de uma vez: {task_id: [subtarefa, ...]} em ordem."""
+        task_ids = list(task_ids)
+        result = {task_id: [] for task_id in task_ids}
+        if not task_ids:
+            return result
+        rows = self.conn.execute(
+            f"SELECT * FROM subtasks WHERE task_id IN ({', '.join('?' * len(task_ids))})"
+            " ORDER BY task_id, position", task_ids,
+        )
+        for row in rows:
+            result[row["task_id"]].append(dict(row))
+        return result
+
     def subtasks_estimate_sum(self, task_id):
         """Soma das previsões das subtarefas (None se nenhuma tiver previsão)."""
         row = self.conn.execute(
@@ -415,6 +444,20 @@ class Repository:
             (subtask_id,),
         ).fetchone()
         return max(row[0], 0)
+
+    def real_seconds_map(self):
+        """Tempo real de todas as tarefas e subtarefas: ({task_id: s}, {subtask_id: s})."""
+        by_task, by_subtask = {}, {}
+        rows = self.conn.execute(
+            "SELECT task_id, subtask_id, SUM(seconds) AS total FROM sessions"
+            " WHERE kind IN ('work', 'manual') AND task_id IS NOT NULL GROUP BY task_id, subtask_id"
+        )
+        for row in rows:
+            by_task[row["task_id"]] = by_task.get(row["task_id"], 0) + row["total"]
+            if row["subtask_id"]:
+                by_subtask[row["subtask_id"]] = row["total"]
+        return ({k: max(v, 0) for k, v in by_task.items()},
+                {k: max(v, 0) for k, v in by_subtask.items()})
 
     def count_work_sessions(self, since=None, until=None):
         """Quantos pomodoros foram levados até o fim (uma fase pode ter várias sessões)."""

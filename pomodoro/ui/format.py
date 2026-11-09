@@ -2,6 +2,9 @@
 
 import math
 import re
+from datetime import timedelta
+
+from ..timer import PHASE_LABELS, Phase
 
 
 def format_minutes(minutes):
@@ -77,3 +80,50 @@ def parse_duration(text):
     if match := _MINUTES.match(text):
         return int(match["m"])
     return None
+
+
+WEEKDAYS = ("segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo")
+MONTHS = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto",
+          "setembro", "outubro", "novembro", "dezembro")
+
+
+def format_date_eyebrow(day):
+    """date(2026, 11, 9) -> 'SEGUNDA, 9 DE NOVEMBRO' (independe do idioma do sistema)."""
+    return f"{WEEKDAYS[day.weekday()]}, {day.day} de {MONTHS[day.month - 1]}".upper()
+
+
+def phase_eyebrow(phase, running, started, cycle, cycles, overtime=False, compact=False):
+    """Texto em maiúsculas sobre o estado do timer: 'EM FOCO · POMODORO 3 DE 4', 'PAUSA CURTA'…"""
+    if phase == Phase.WORK:
+        base = f"POMODORO {cycle}/{cycles}" if compact else f"POMODORO {cycle} DE {cycles}"
+        if overtime:
+            state = "TEMPO EXTRA"
+        elif running:
+            state = "EM FOCO"
+        else:
+            state = "PAUSADO" if started else "PRONTO PARA FOCAR"
+        return f"{state} · {base}"
+    label = PHASE_LABELS[phase].upper()
+    if running:
+        return label
+    return f"{label} · {'PAUSADA' if started else 'PRONTA'}"
+
+
+def progress_note(real_seconds, estimate_min, running, now):
+    """Texto e fração do progresso da tarefa: (texto, 0..1, 'none' | 'ok' | 'over')."""
+    if not estimate_min:
+        return "Sem previsão. Defina um tempo para acompanhar o ritmo.", 0.0, "none"
+    real_min = real_seconds / 60
+    if real_min > estimate_min:
+        over = max(round(real_min - estimate_min), 1)
+        return f"Passou {format_minutes(over)} do previsto.", 1.0, "over"
+    left = estimate_min - real_min
+    text = f"Faltam ~{format_minutes(max(round(left), 1))} do previsto."
+    if running:
+        text += f" Se mantiver o ritmo, termina por volta de {(now + timedelta(minutes=left)):%H:%M}."
+    return text, min(real_min / estimate_min, 1.0), "ok"
+
+
+def interval_text(interval):
+    """'Pausa curta de 5 min às 15:48' a partir de um item de PomodoroTimer.next_intervals()."""
+    return f"{interval['label']} de {interval['seconds'] // 60} min às {interval['start']:%H:%M}"

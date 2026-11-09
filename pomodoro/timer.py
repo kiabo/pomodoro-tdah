@@ -82,6 +82,16 @@ class PomodoroTimer:
         return minutes * 60
 
     @property
+    def phase_total(self):
+        """Duração total da fase atual, em segundos."""
+        return self._phase_duration(self.phase)
+
+    @property
+    def started(self):
+        """Já contou algum segundo nesta fase (ou seja, não está intacta)."""
+        return self.phase_elapsed > 0
+
+    @property
     def in_overtime(self):
         return self._overtime
 

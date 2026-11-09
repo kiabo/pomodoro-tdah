@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import fcntl
 import os
 import sys
@@ -19,5 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pomodoro.app import PomodoroApp
 
 if __name__ == "__main__":
-    app = PomodoroApp()
+    parser = argparse.ArgumentParser(description="Pomodoro para TDAH")
+    parser.add_argument("--hidden", action="store_true", help="começa só na bandeja, sem abrir a janela")
+    args = parser.parse_args()
+    app = PomodoroApp(start_hidden=args.hidden)
     app.run()

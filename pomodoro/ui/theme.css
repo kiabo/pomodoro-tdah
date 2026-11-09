@@ -10,7 +10,7 @@ window.app-window {
     font-size: 14px;
 }
 
-.sidebar { background-color: #F3EFE7; }
+.sidebar { background-color: #F3EFE7; padding: 20px; border-right: 1px solid #E2DCD1; }
 .titlebar-custom { background-color: #EFEAE1; }
 .dark-panel { background-color: #1F2430; color: #FFFFFF; }
 
@@ -41,6 +41,7 @@ window.app-window {
 .text-danger { color: #C2412D; }
 .text-amber { color: #B7791F; }
 .text-amber-dark { color: #7A5414; }
+.text-amber-bright { color: #F2B33D; }
 .text-on-dark { color: #FFFFFF; }
 .text-dark-muted { color: #9AA0AE; }
 .text-mint { color: #6EE7B7; }
@@ -61,6 +62,8 @@ window.app-window {
 .card-soft { background-color: #FAF7F2; border: 1px solid #EAE5DB; border-radius: 12px; padding: 14px; }
 .card-dark { background-color: #1F2430; border: none; border-radius: 20px; padding: 18px; color: #FFFFFF; }
 .card-dark2 { background-color: #2C3242; border: none; border-radius: 14px; padding: 12px; color: #FFFFFF; }
+.card-mini { background-color: #1F2430; border: none; border-radius: 14px; padding: 14px; color: #FFFFFF; }
+.card-timer { padding: 22px; }
 .card-break { background-color: #17392C; border: none; border-radius: 16px; padding: 14px; color: #FFFFFF; }
 .card-dashed {
     background-color: transparent;
@@ -145,6 +148,9 @@ button.btn-step {
     color: #1F2430;
 }
 button.btn-step:hover { background-color: shade(#F1EDE4, 0.95); }
+
+button.btn-link-dark { background-color: transparent; color: #9AA0AE; padding: 4px 8px; font-weight: 400; font-size: 12px; }
+button.btn-link-dark:hover { color: #FFFFFF; }
 
 button.btn-link { background-color: transparent; color: #5B5BD6; padding: 0; font-weight: 400; }
 button.btn-link:hover { text-decoration: underline; }
@@ -310,3 +316,39 @@ progressbar.bar-pink progress { background-color: #E879A6; }
 scrollbar slider { min-width: 6px; min-height: 6px; border-radius: 3px; background-color: alpha(#1F2430, 0.25); }
 scrollbar slider:hover { background-color: alpha(#1F2430, 0.4); }
 scrollbar trough { background-color: transparent; border: none; }
+
+/* ---- caixas de marcar (tarefas e subtarefas) -------------------------- */
+
+button.check {
+    background-image: none;
+    background-color: #FFFFFF;
+    border: 2px solid #C9C3B8;
+    border-radius: 10px;
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    box-shadow: none;
+    text-shadow: none;
+    outline-style: none;
+    color: transparent;
+    font-size: 11px;
+    font-weight: 700;
+}
+button.check:hover { border-color: #5B5BD6; }
+button.check:checked { background-color: #3DAA7D; border-color: #3DAA7D; color: #FFFFFF; }
+button.check:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+button.check-focus { border-color: #5B5BD6; }
+button.check-square { border-radius: 5px; min-width: 12px; min-height: 12px; font-size: 9px; }
+
+entry.entry-error { border-color: #C2412D; box-shadow: 0 0 0 1px #C2412D; }
+
+/* ---- barra de título ------------------------------------------------- */
+
+headerbar.titlebar-custom {
+    background-color: #EFEAE1;
+    background-image: none;
+    border-bottom: 1px solid #E2DCD1;
+    box-shadow: none;
+    min-height: 40px;
+    color: #6B7280;
+}

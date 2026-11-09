@@ -1,7 +1,11 @@
 import unittest
 
-from pomodoro.ui.format import (delta_text, format_clock, format_minutes, format_real,
-                                parse_duration, pomodoros_estimate)
+from datetime import date, datetime
+
+from pomodoro.ui.format import (delta_text, format_clock, format_date_eyebrow, format_minutes,
+                                format_real, interval_text, parse_duration, phase_eyebrow,
+                                pomodoros_estimate, progress_note)
+from pomodoro.timer import Phase
 
 
 class FormatTest(unittest.TestCase):
@@ -46,6 +50,44 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(pomodoros_estimate(0), 0)
         self.assertEqual(pomodoros_estimate(None), 0)
         self.assertEqual(pomodoros_estimate(100, work_min=50), 2)
+
+
+class DateTest(unittest.TestCase):
+    def test_eyebrow(self):
+        self.assertEqual(format_date_eyebrow(date(2026, 11, 9)), "SEGUNDA, 9 DE NOVEMBRO")
+        self.assertEqual(format_date_eyebrow(date(2026, 11, 10)), "TERÇA, 10 DE NOVEMBRO")
+        self.assertEqual(format_date_eyebrow(date(2026, 3, 1)), "DOMINGO, 1 DE MARÇO")
+        self.assertEqual(format_date_eyebrow(date(2026, 12, 25)), "SEXTA, 25 DE DEZEMBRO")
+
+
+class TimerTextTest(unittest.TestCase):
+    def test_eyebrow_for_work(self):
+        self.assertEqual(phase_eyebrow(Phase.WORK, True, True, 3, 4), "EM FOCO · POMODORO 3 DE 4")
+        self.assertEqual(phase_eyebrow(Phase.WORK, True, True, 3, 4, compact=True), "EM FOCO · POMODORO 3/4")
+        self.assertEqual(phase_eyebrow(Phase.WORK, False, True, 3, 4), "PAUSADO · POMODORO 3 DE 4")
+        self.assertEqual(phase_eyebrow(Phase.WORK, False, False, 1, 4), "PRONTO PARA FOCAR · POMODORO 1 DE 4")
+        self.assertEqual(phase_eyebrow(Phase.WORK, True, True, 2, 4, overtime=True), "TEMPO EXTRA · POMODORO 2 DE 4")
+
+    def test_eyebrow_for_breaks(self):
+        self.assertEqual(phase_eyebrow(Phase.SHORT_BREAK, True, True, 1, 4), "PAUSA CURTA")
+        self.assertEqual(phase_eyebrow(Phase.LONG_BREAK, False, False, 1, 4), "PAUSA LONGA · PRONTA")
+        self.assertEqual(phase_eyebrow(Phase.SHORT_BREAK, False, True, 1, 4), "PAUSA CURTA · PAUSADA")
+
+    def test_progress_note(self):
+        now = datetime(2026, 11, 9, 15, 0)
+        text, fraction, kind = progress_note(50 * 60, 90, True, now)
+        self.assertEqual((kind, round(fraction, 3)), ("ok", 0.556))
+        self.assertEqual(text, "Faltam ~40m do previsto. Se mantiver o ritmo, termina por volta de 15:40.")
+        self.assertEqual(progress_note(50 * 60, 90, False, now)[0], "Faltam ~40m do previsto.")
+        text, fraction, kind = progress_note(102 * 60, 90, True, now)
+        self.assertEqual((text, fraction, kind), ("Passou 12m do previsto.", 1.0, "over"))
+        self.assertEqual(progress_note(0, None, True, now)[2], "none")
+        self.assertEqual(progress_note(90 * 60 + 10, 90, True, now)[0], "Passou 1m do previsto.")
+        self.assertEqual(progress_note(89 * 60 + 40, 90, False, now)[0], "Faltam ~1m do previsto.")
+
+    def test_interval_text(self):
+        item = {"label": "Pausa curta", "seconds": 300, "start": datetime(2026, 11, 9, 15, 48)}
+        self.assertEqual(interval_text(item), "Pausa curta de 5 min às 15:48")
 
 
 class ParseDurationTest(unittest.TestCase):

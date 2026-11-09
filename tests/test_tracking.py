@@ -247,6 +247,15 @@ class LiveTimeAndHyperfocusTest(TrackingTest):
         other = self.repo.create_task(self.group["id"], "Outra")
         self.assertEqual(self.tracker.live_real_seconds(other["id"]), 0)
 
+    def test_live_real_seconds_of_the_active_subtask(self):
+        self.repo.add_manual_adjustment(self.task["id"], 300, subtask_id=self.sub["id"])
+        self.tracker.set_active(self.task["id"], self.sub["id"])
+        self.timer.start()
+        self.run_seconds(70)                        # passa por um checkpoint (30 s e 60 s)
+        self.assertEqual(self.tracker.live_real_seconds_subtask(self.sub["id"]), 370)
+        other = self.repo.add_subtask(self.task["id"], "Outra")
+        self.assertEqual(self.tracker.live_real_seconds_subtask(other["id"]), 0)
+
     def test_live_includes_previous_sessions(self):
         self.repo.add_manual_adjustment(self.task["id"], 600)
         self.tracker.set_active(self.task["id"])
