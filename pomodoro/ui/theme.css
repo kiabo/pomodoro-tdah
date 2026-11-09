@@ -1,0 +1,312 @@
+/* Tema do Pomodoro TDAH. Cores = tokens do Figma (pomodoro/ui/tokens.py).
+   Para usar: adicione a classe "app-window" à janela e as classes abaixo aos widgets. */
+
+/* ---- base ---------------------------------------------------------- */
+
+window.app-window {
+    background-color: #FAF7F2;
+    color: #1F2430;
+    font-family: "Inter", "Ubuntu Sans", "Cantarell", sans-serif;
+    font-size: 14px;
+}
+
+.sidebar { background-color: #F3EFE7; }
+.titlebar-custom { background-color: #EFEAE1; }
+.dark-panel { background-color: #1F2430; color: #FFFFFF; }
+
+/* ---- tipografia ---------------------------------------------------- */
+
+.title-xl { font-size: 28px; font-weight: 700; }
+.title-lg { font-size: 22px; font-weight: 700; }
+.title-md { font-size: 18px; font-weight: 700; }
+.section-title { font-size: 16px; font-weight: 700; }
+.card-title { font-size: 15px; font-weight: 700; }
+.stat-value { font-size: 24px; font-weight: 700; }
+.timer-xl { font-size: 46px; font-weight: 700; }
+.timer-lg { font-size: 64px; font-weight: 700; }
+.small { font-size: 12px; }
+.caption { font-size: 11px; }
+.bold { font-weight: 700; }
+.strike { text-decoration: line-through; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #8A857C; }
+
+.muted { color: #8A857C; }
+.faint { color: #A39E94; }
+.text2 { color: #4B5060; }
+.text-primary { color: #5B5BD6; }
+.text-primary-soft { color: #A9A8E8; }
+.text-focus { color: #F26B4E; }
+.text-green { color: #3DAA7D; }
+.text-green-dark { color: #2F855A; }
+.text-danger { color: #C2412D; }
+.text-amber { color: #B7791F; }
+.text-amber-dark { color: #7A5414; }
+.text-on-dark { color: #FFFFFF; }
+.text-dark-muted { color: #9AA0AE; }
+.text-mint { color: #6EE7B7; }
+
+/* ---- cartões ------------------------------------------------------- */
+
+.card {
+    background-color: #FFFFFF;
+    border: 1px solid #EAE5DB;
+    border-radius: 16px;
+    padding: 14px;
+}
+.card-lg { border-radius: 18px; padding: 20px; }
+.card-selected { border: 2px solid #5B5BD6; }
+.card-primary { background-color: #F1F0FD; border: 1px solid #5B5BD6; }
+.card-ai { background-color: #FFF6E0; border: 1px solid #F2D58A; }
+.card-green { background-color: #F3FBF7; border: 1px solid #BFE6D2; }
+.card-soft { background-color: #FAF7F2; border: 1px solid #EAE5DB; border-radius: 12px; padding: 14px; }
+.card-dark { background-color: #1F2430; border: none; border-radius: 20px; padding: 18px; color: #FFFFFF; }
+.card-dark2 { background-color: #2C3242; border: none; border-radius: 14px; padding: 12px; color: #FFFFFF; }
+.card-break { background-color: #17392C; border: none; border-radius: 16px; padding: 14px; color: #FFFFFF; }
+.card-dashed {
+    background-color: transparent;
+    border: 1.5px dashed #C9C3B8;
+    border-radius: 12px;
+    padding: 11px 14px;
+}
+.task-row {
+    background-color: #FFFFFF;
+    border: 1px solid #EAE5DB;
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.task-row-done { background-color: #F3FBF7; }
+.task-row-focus { background-color: #F1F0FD; border: 1.5px solid #5B5BD6; }
+
+/* ---- botões -------------------------------------------------------- */
+
+button.btn {
+    background-image: none;
+    background-color: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+    text-shadow: none;
+    -gtk-icon-shadow: none;
+    outline-style: none;
+    border-radius: 12px;
+    padding: 9px 16px;
+    min-height: 0;
+    min-width: 0;
+    font-weight: 700;
+    color: #1F2430;
+}
+button.btn:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+button.btn:disabled { opacity: 0.5; }
+
+button.btn-primary { background-color: #5B5BD6; color: #FFFFFF; }
+button.btn-primary:hover { background-color: shade(#5B5BD6, 0.9); }
+button.btn-primary:active { background-color: shade(#5B5BD6, 0.8); }
+
+button.btn-secondary { background-color: #FFFFFF; border-color: #E2DCD1; color: #4B5060; font-weight: 400; }
+button.btn-secondary:hover { background-color: #FAF7F2; }
+button.btn-secondary:checked { background-color: #5B5BD6; border-color: #5B5BD6; color: #FFFFFF; }
+
+button.btn-danger { border-color: #F5C2B5; color: #C2412D; font-weight: 400; }
+button.btn-danger:hover { background-color: #FDECE7; }
+
+button.btn-focus { background-color: #F26B4E; color: #FFFFFF; }
+button.btn-focus:hover { background-color: shade(#F26B4E, 0.92); }
+
+button.btn-dark { background-color: #1F2430; color: #FFFFFF; }
+button.btn-dark:hover { background-color: #2C3242; }
+
+button.btn-dark-soft { background-color: #2C3242; color: #FFFFFF; }
+button.btn-dark-soft:hover { background-color: #3A4050; }
+
+button.btn-green { background-color: #3DAA7D; color: #FFFFFF; }
+button.btn-green:hover { background-color: shade(#3DAA7D, 0.92); }
+
+button.btn-amber { background-color: #F2B33D; color: #1F2430; }
+button.btn-amber:hover { background-color: shade(#F2B33D, 0.94); }
+
+button.btn-amber-outline { background-color: #FFFFFF; border-color: #F2D58A; color: #7A5414; font-weight: 400; }
+
+button.btn-mint { background-color: #6EE7B7; color: #17392C; }
+button.btn-mint:hover { background-color: shade(#6EE7B7, 0.94); }
+
+button.btn-ghost { color: #5B5BD6; padding: 6px 8px; }
+button.btn-ghost:hover { background-color: alpha(#1F2430, 0.06); }
+
+button.btn-round { border-radius: 999px; padding: 0; min-width: 44px; min-height: 44px; }
+button.btn-round-sm { min-width: 30px; min-height: 30px; }
+button.btn-round-lg { min-width: 60px; min-height: 60px; }
+button.btn-round-xl { min-width: 76px; min-height: 76px; }
+
+button.btn-step {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-radius: 8px;
+    background-color: #F1EDE4;
+    color: #1F2430;
+}
+button.btn-step:hover { background-color: shade(#F1EDE4, 0.95); }
+
+button.btn-link { background-color: transparent; color: #5B5BD6; padding: 0; font-weight: 400; }
+button.btn-link:hover { text-decoration: underline; }
+
+/* ---- campos -------------------------------------------------------- */
+
+entry.input {
+    background-color: #FFFFFF;
+    background-image: none;
+    color: #1F2430;
+    border: 1px solid #E2DCD1;
+    border-radius: 10px;
+    box-shadow: none;
+    padding: 9px 12px;
+    min-height: 0;
+}
+entry.input:focus { border-color: #5B5BD6; box-shadow: 0 0 0 1px #5B5BD6; }
+entry.input:disabled { background-color: #F1EDE4; color: #8A857C; }
+entry.input-large { font-size: 18px; font-weight: 700; padding: 12px 14px; border-radius: 12px; }
+entry.input-ghost { border-color: transparent; background-color: transparent; }
+entry.stepper-entry {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    min-height: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: #1F2430;
+}
+entry.stepper-entry:focus { box-shadow: none; background-color: #F1EDE4; border-radius: 8px; }
+
+/* ---- escolhas: chips e segmentado ---------------------------------- */
+
+button.chip {
+    background-image: none;
+    background-color: #F1EDE4;
+    border: 1px solid transparent;
+    box-shadow: none;
+    text-shadow: none;
+    outline-style: none;
+    border-radius: 10px;
+    padding: 9px 14px;
+    min-height: 0;
+    min-width: 0;
+    color: #4B5060;
+}
+button.chip:hover { background-color: shade(#F1EDE4, 0.96); }
+button.chip:checked { background-color: #5B5BD6; color: #FFFFFF; font-weight: 700; }
+button.chip:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+button.chip-pill { border-radius: 16px; padding: 6px 12px; font-size: 12px; }
+
+box.segmented { background-color: #F1EDE4; border-radius: 10px; padding: 3px; }
+box.segmented button {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    text-shadow: none;
+    outline-style: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    min-height: 0;
+    min-width: 0;
+    color: #8A857C;
+    font-size: 12px;
+}
+box.segmented button:hover { color: #1F2430; }
+box.segmented button:checked { background-color: #FFFFFF; color: #1F2430; font-weight: 700; }
+box.segmented button:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+
+/* ---- navegação lateral --------------------------------------------- */
+
+button.nav-item {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    text-shadow: none;
+    outline-style: none;
+    border-radius: 10px;
+    padding: 8px 10px;
+    min-height: 0;
+    color: #4B5060;
+}
+button.nav-item:hover { background-color: alpha(#FFFFFF, 0.6); }
+button.nav-item:checked { background-color: #FFFFFF; color: #1F2430; font-weight: 700; }
+button.nav-item:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+
+/* ---- pílulas de status --------------------------------------------- */
+
+label.pill { border-radius: 8px; padding: 3px 8px; font-size: 11px; font-weight: 700; }
+label.pill-todo { background-color: #F1EDE4; color: #6B7280; }
+label.pill-doing { background-color: #F26B4E; color: #FFFFFF; }
+label.pill-done { background-color: #E3F5EC; color: #2F855A; }
+label.pill-discarded { background-color: #F1EDE4; color: #A39E94; }
+label.pill-ai { background-color: #FFF6E0; color: #B7791F; }
+
+/* ---- interruptor --------------------------------------------------- */
+
+switch.toggle {
+    min-width: 38px;
+    min-height: 22px;
+    border-radius: 11px;
+    border: none;
+    box-shadow: none;
+    background-image: none;
+    background-color: #D9D4C9;
+    color: transparent;
+    outline-style: none;
+}
+switch.toggle:checked { background-color: #5B5BD6; }
+switch.toggle:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+switch.toggle slider {
+    min-width: 18px;
+    min-height: 18px;
+    margin: 2px;
+    border-radius: 9px;
+    border: none;
+    box-shadow: none;
+    background-image: none;
+    background-color: #FFFFFF;
+}
+
+/* ---- barras de progresso ------------------------------------------- */
+
+progressbar.bar trough {
+    min-height: 8px;
+    border-radius: 4px;
+    border: none;
+    background-image: none;
+    background-color: #F1EDE4;
+    box-shadow: none;
+}
+progressbar.bar progress {
+    min-height: 8px;
+    border-radius: 4px;
+    border: none;
+    background-image: none;
+    background-color: #5B5BD6;
+    box-shadow: none;
+}
+progressbar.bar-thin trough, progressbar.bar-thin progress { min-height: 6px; border-radius: 3px; }
+progressbar.bar-dark trough { background-color: #3A4050; }
+progressbar.bar-amber-track trough { background-color: #F2E2B8; }
+progressbar.bar-green progress { background-color: #3DAA7D; }
+progressbar.bar-mint progress { background-color: #6EE7B7; }
+progressbar.bar-focus progress { background-color: #F26B4E; }
+progressbar.bar-amber progress { background-color: #F2B33D; }
+progressbar.bar-pink progress { background-color: #E879A6; }
+
+/* ---- anel do timer e gráficos -------------------------------------- */
+
+.ring-time { font-size: 46px; font-weight: 700; color: #1F2430; }
+.ring-caption { font-size: 12px; color: #8A857C; }
+.progress-ring.on-dark .ring-time { color: #FFFFFF; }
+.progress-ring.on-dark .ring-caption { color: #9AA0AE; }
+.chart { font-size: 11px; color: #8A857C; }
+
+/* ---- rolagem -------------------------------------------------------- */
+
+scrollbar slider { min-width: 6px; min-height: 6px; border-radius: 3px; background-color: alpha(#1F2430, 0.25); }
+scrollbar slider:hover { background-color: alpha(#1F2430, 0.4); }
+scrollbar trough { background-color: transparent; border: none; }
