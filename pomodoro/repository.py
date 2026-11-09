@@ -336,11 +336,14 @@ class Repository:
             )
         return cur.lastrowid
 
-    def end_session(self, session_id, seconds, interrupted=False, ended_at=None, note=None):
+    def end_session(self, session_id, seconds, interrupted=False, ended_at=None, note=None,
+                    completed_phase=False):
+        """Fecha a sessão. completed_phase marca a que levou o pomodoro/intervalo até o fim."""
         if seconds < 0:
             raise ValueError("uma sessão não pode ter duração negativa")
-        sets = "ended_at = ?, seconds = ?, interrupted = ?"
-        params = [db.timestamp(ended_at or self.now()), int(seconds), int(bool(interrupted))]
+        sets = "ended_at = ?, seconds = ?, interrupted = ?, completed_phase = ?"
+        params = [db.timestamp(ended_at or self.now()), int(seconds), int(bool(interrupted)),
+                  int(bool(completed_phase))]
         if note is not None:
             sets += ", note = ?"
             params.append(note)
@@ -349,6 +352,22 @@ class Repository:
         if cur.rowcount == 0:
             raise KeyError(f"sessão {session_id} não existe")
         return self.get_session(session_id)
+
+    def update_session_seconds(self, session_id, seconds):
+        """Checkpoint de uma sessão ainda aberta (protege o tempo contra queda do app)."""
+        if seconds < 0:
+            raise ValueError("uma sessão não pode ter duração negativa")
+        with self.conn:
+            cur = self.conn.execute("UPDATE sessions SET seconds = ? WHERE id = ?", (int(seconds), session_id))
+        if cur.rowcount == 0:
+            raise KeyError(f"sessão {session_id} não existe")
+
+    def open_sessions(self):
+        return _rows(self.conn.execute("SELECT * FROM sessions WHERE ended_at IS NULL ORDER BY id"))
+
+    def delete_session(self, session_id):
+        with self.conn:
+            self.conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
     def get_session(self, session_id):
         return _row(self.conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone())
@@ -398,8 +417,9 @@ class Repository:
         return max(row[0], 0)
 
     def count_work_sessions(self, since=None, until=None):
+        """Quantos pomodoros foram levados até o fim (uma fase pode ter várias sessões)."""
         sessions = self.list_sessions(since=since, until=until, kinds=("work",))
-        return sum(1 for s in sessions if s["ended_at"] and not s["interrupted"])
+        return sum(1 for s in sessions if s["completed_phase"])
 
     # ---- distrações -----------------------------------------------------
 

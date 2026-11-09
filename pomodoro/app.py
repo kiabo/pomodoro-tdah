@@ -12,6 +12,7 @@ from gi.repository import Gtk, AyatanaAppIndicator3 as AppIndicator3, Notify
 from . import db, settings as settings_store
 from .repository import Repository
 from .timer import PomodoroTimer, Phase, PHASE_LABELS
+from .tracking import Tracker
 from .window import MainWindow
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "icons"
@@ -31,9 +32,12 @@ class PomodoroApp:
         self.settings = settings_store.load_settings(self.data_dir)
         self.db = db.open_database(self.data_dir)
         self.repo = Repository(self.db)
-        self.active_task_id = None
 
         self.timer = PomodoroTimer(self.settings, self.on_tick, self.on_phase_change)
+        self.tracker = Tracker(self.repo, self.timer, lambda: self.settings, on_alert=self.on_alert)
+        self.tracker.recover_orphans()
+        self.timer.add_listener(self.tracker.handle)
+        self.timer.add_listener(self.on_timer_event)
 
         self.indicator = AppIndicator3.Indicator.new(
             "pomodoro-indicator",
@@ -97,17 +101,46 @@ class PomodoroApp:
 
     def on_phase_change(self, auto):
         label = PHASE_LABELS[self.timer.phase]
-        try:
-            Notify.Notification.new("Pomodoro", f"Hora de: {label}", None).show()
-        except Exception:
-            pass
+        self._notify(f"Hora de: {label}")
         self._play_beep()
         self.window.refresh_timer()
 
+    def on_timer_event(self, name, **data):
+        if name == "warning":
+            minutes = max(data["remaining"] // 60, 1)
+            self._notify(f"Faltam {minutes} min para o fim do foco")
+        elif name == "overtime":
+            self._notify("O tempo do foco acabou. Termine o que está fazendo ou faça uma pausa.")
+            self._play_beep()
+
+    def on_alert(self, name, **data):
+        if name == "hyperfocus":
+            task = self.repo.get_task(data["task_id"])
+            title = task["title"] if task else "a tarefa atual"
+            real_min = round(data["real_seconds"] / 60)
+            est_min = round(data["estimate_seconds"] / 60)
+            self._notify(f"Passou do previsto em \u201c{title}\u201d: {real_min} min de {est_min} min. "
+                         "Vale conferir se ainda é a prioridade.")
+
+    def _notify(self, message):
+        if not self.settings.get("system_notifications", True):
+            return
+        try:
+            Notify.Notification.new("Pomodoro", message, None).show()
+        except Exception:
+            pass
+
+    @property
+    def active_task_id(self):
+        return self.tracker.active_task_id
+
     def _play_beep(self):
+        sound = self.settings.get("end_sound", "complete")
+        if not sound:
+            return
         try:
             subprocess.Popen(
-                ["canberra-gtk-play", "-i", "complete"],
+                ["canberra-gtk-play", "-i", sound],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -134,9 +167,9 @@ class PomodoroApp:
         self.window.refresh_tasks()
 
     def delete_task(self, task_id):
-        self.repo.delete_task(task_id)
         if self.active_task_id == task_id:
-            self.active_task_id = None
+            self.tracker.set_active(None)
+        self.repo.delete_task(task_id)
         self.window.refresh_tasks()
 
     def toggle_task_done(self, task_id):
@@ -146,7 +179,7 @@ class PomodoroApp:
         self.window.refresh_tasks()
 
     def set_active_task(self, task_id):
-        self.active_task_id = task_id
+        self.tracker.set_active(task_id)
         self.window.refresh_tasks()
         self.window.refresh_timer()
 
@@ -161,6 +194,7 @@ class PomodoroApp:
     # ---- lifecycle ------------------------------------------------------
 
     def quit(self, *_args):
+        self.tracker.shutdown()
         settings_store.save_settings(self.settings, self.data_dir)
         self.db.close()
         Gtk.main_quit()

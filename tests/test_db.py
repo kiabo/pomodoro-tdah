@@ -35,6 +35,22 @@ class MigrationTest(TempDirTest):
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM groups").fetchone()[0], 1)
         conn.close()
 
+    def test_upgrade_from_version_1_keeps_data(self):
+        path = self.dir / db.DB_FILENAME
+        raw = db.connect(path)
+        raw.executescript(db.MIGRATIONS[0])
+        raw.execute("PRAGMA user_version = 1")
+        raw.execute("INSERT INTO groups(id, name, created_at) VALUES ('g', 'Casa', 'now')")
+        raw.execute("INSERT INTO sessions(kind, started_at, seconds) VALUES ('work', 'now', 60)")
+        raw.commit()
+        raw.close()
+        conn = db.open_database(self.dir, NOW)
+        self.assertEqual(db.schema_version(conn), db.SCHEMA_VERSION)
+        session = conn.execute("SELECT * FROM sessions").fetchone()
+        self.assertEqual((session["seconds"], session["completed_phase"]), (60, 0))
+        self.assertEqual(conn.execute("SELECT name FROM groups WHERE id = 'g'").fetchone()[0], "Casa")
+        conn.close()
+
     def test_newer_database_is_refused(self):
         path = self.dir / db.DB_FILENAME
         raw = sqlite3.connect(path)

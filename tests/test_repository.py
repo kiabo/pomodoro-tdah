@@ -243,7 +243,7 @@ class SessionTest(RepoTest):
 
     def test_list_and_count(self):
         s1 = self.repo.start_session("work", task_id=self.task["id"])
-        self.repo.end_session(s1, 1500)
+        self.repo.end_session(s1, 1500, completed_phase=True)
         self.clock.advance(hours=1)
         s2 = self.repo.start_session("work", task_id=self.task["id"])
         self.repo.end_session(s2, 300, interrupted=True)

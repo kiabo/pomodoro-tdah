@@ -94,6 +94,8 @@ MIGRATIONS = [
         value TEXT
     );
     """,
+    # 2: marca a sessão que terminou um pomodoro/intervalo até o fim (para contar pomodoros).
+    "ALTER TABLE sessions ADD COLUMN completed_phase INTEGER NOT NULL DEFAULT 0;",
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)
