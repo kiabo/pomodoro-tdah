@@ -72,6 +72,7 @@ def button(text, *classes, tooltip=None, on_click=None):
     widget = style(Gtk.Button(label=text), "btn", *classes)
     if tooltip:
         widget.set_tooltip_text(tooltip)
+        widget.get_accessible().set_name(tooltip)      # leitores de tela leem a dica em botões só de ícone
     if on_click:
         widget.connect("clicked", lambda *_: on_click())
     return widget
@@ -89,6 +90,7 @@ def make_check(active=False, square=False, focus=False, on_toggled=None, tooltip
     widget.set_focus_on_click(False)
     if tooltip:
         widget.set_tooltip_text(tooltip)
+        widget.get_accessible().set_name(tooltip)
     if on_toggled:
         widget.connect("toggled", lambda w: on_toggled(w.get_active()))
     return widget

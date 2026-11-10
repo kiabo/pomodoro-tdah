@@ -27,6 +27,7 @@ PHASE_ICON = {
     Phase.SHORT_BREAK: "pomodoro-break",
     Phase.LONG_BREAK: "pomodoro-break-long",
 }
+OVERTIME_ICON = "pomodoro-overtime"       # o tempo do foco acabou e o relógio segue contando
 
 
 class PomodoroApp:
@@ -128,7 +129,9 @@ class PomodoroApp:
     def _update_indicator(self):
         timer = self.controller.timer
         self.indicator.set_label(format_clock(timer.remaining), "+88:88")
-        if timer.running:
+        if timer.running and timer.in_overtime:
+            icon = OVERTIME_ICON
+        elif timer.running:
             icon = PHASE_ICON[timer.phase]
         else:
             icon = "pomodoro-paused" if timer.started else "pomodoro-idle"

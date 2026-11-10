@@ -17,6 +17,7 @@ def make_toggle(active=False, on_toggled=None, tooltip=None):
     switch.set_active(active)
     if tooltip:
         switch.set_tooltip_text(tooltip)
+        switch.get_accessible().set_name(tooltip)
     if on_toggled:
         switch.connect("notify::active", lambda w, _p: on_toggled(w.get_active()))
     return switch

@@ -596,6 +596,10 @@ class CompactWindow(Gtk.Window):
         if event.keyval == Gdk.KEY_Escape and self.focus_card.expanded:
             self.focus_card.set_expanded(False)
             return True
+        focus = self.get_focus()
+        if event.keyval == Gdk.KEY_space and not isinstance(focus, (Gtk.Entry, Gtk.Button)):
+            self.controller.toggle_timer()          # Espaço pausa/retoma, como na janela principal
+            return True
         return False
 
     # ---- posição --------------------------------------------------------------

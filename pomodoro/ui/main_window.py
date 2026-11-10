@@ -15,6 +15,7 @@ from .pages.plan_tomorrow import PlanTomorrowPage
 from .pages.settings_page import SettingsPage
 from .pages.task_editor import TaskEditorPage
 from .pages.today import TodayPage
+from .shortcuts import key_action
 from .sidebar import Sidebar
 from .theme import style, themed_window
 
@@ -134,15 +135,21 @@ class MainWindow(Gtk.Window):
         self.present()
 
     def _on_key_press(self, _widget, event):
-        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
-        if ctrl and event.keyval in (Gdk.KEY_k, Gdk.KEY_K):
+        focus = self.get_focus()
+        typing = isinstance(focus, (Gtk.Entry, Gtk.TextView, Gtk.SpinButton))
+        activatable = typing or isinstance(focus, (Gtk.Button, Gtk.Switch, Gtk.Calendar))
+        action = key_action(Gdk.keyval_name(event.keyval), bool(event.state & Gdk.ModifierType.CONTROL_MASK),
+                            typing, activatable, self.stack.get_visible_child_name())
+        if action == "search":
             self.show_page("today")
             self.today.focus_search()
-            return True
-        if ctrl and event.keyval in (Gdk.KEY_n, Gdk.KEY_N):
+        elif action == "new-task":
             self.open_new_task_dialog()
-            return True
-        return False
+        elif action == "toggle-timer":
+            self.controller.toggle_timer()
+        elif action == "back":
+            self._leave_editor() if self.stack.get_visible_child_name() == "task" else self.show_page("today")
+        return action is not None
 
     # ---- atualização ----------------------------------------------------
 

@@ -37,3 +37,13 @@ Terminais de apps instalados via snap (ex.: VS Code) injetam bibliotecas que der
 os scripts já limpam o ambiente (`scripts/_cleanenv.sh`). Fora deles, rode num terminal normal do sistema.
 
 Os dados ficam em `~/.local/share/pomodoro-app/` (ou em `POMODORO_DATA_DIR`).
+
+## Atalhos
+
+| Tecla | Ação |
+|---|---|
+| Ctrl K | Buscar tarefa |
+| Ctrl N | Nova tarefa |
+| Ctrl Enter | Criar a tarefa (no modal Nova tarefa) |
+| Espaço | Pausar / retomar o timer (fora de campos de texto e botões) |
+| Esc | Voltar para Hoje (ou fechar o modal / a lista do modo compacto) |
