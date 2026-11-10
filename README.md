@@ -64,3 +64,7 @@ Os dados ficam em `~/.local/share/pomodoro-app/` (ou em `POMODORO_DATA_DIR`).
 | Ctrl Enter | Criar a tarefa (no modal Nova tarefa) |
 | Espaço | Pausar / retomar o timer (fora de campos de texto e botões) |
 | Esc | Voltar para Hoje (ou fechar o modal / a lista do modo compacto) |
+
+## Licença
+
+[MIT](LICENSE).
