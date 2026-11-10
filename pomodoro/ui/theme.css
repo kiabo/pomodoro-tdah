@@ -71,6 +71,7 @@ window.app-window {
     border-radius: 12px;
     padding: 11px 14px;
 }
+.card-soft.card-green { background-color: #F3FBF7; border: 1px solid #BFE6D2; }
 .task-row {
     background-color: #FFFFFF;
     border: 1px solid #EAE5DB;
@@ -222,6 +223,8 @@ box.segmented button {
 box.segmented button:hover { color: #1F2430; }
 box.segmented button:checked { background-color: #FFFFFF; color: #1F2430; font-weight: 700; }
 box.segmented button:focus { box-shadow: 0 0 0 2px alpha(#5B5BD6, 0.35); }
+
+button.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 10px; }
 
 /* ---- navegação lateral --------------------------------------------- */
 
@@ -529,3 +532,13 @@ button.btn-alert-light {
     padding: 7px 8px;
     border-radius: 8px;
 }
+
+/* ---- revisar e planejar amanhã (D7) ---------------------------------- */
+
+label.step { border-radius: 14px; padding: 5px 12px; font-size: 12px; font-weight: 700; }
+label.step-todo { background-color: #F1EDE4; color: #8A857C; }
+label.step-active { background-color: #5B5BD6; color: #FFFFFF; }
+label.step-done { background-color: #E3F5EC; color: #2F855A; }
+.leftover-row { background-color: #FAF7F2; border-radius: 12px; padding: 12px 14px; }
+.plan-row { background-color: #FAF7F2; border-radius: 10px; padding: 8px 10px; }
+.plan-card { border: 2px solid #5B5BD6; border-radius: 18px; padding: 20px; background-color: #FFFFFF; }

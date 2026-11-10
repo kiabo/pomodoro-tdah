@@ -5,6 +5,8 @@ A interface chama os métodos daqui e se inscreve (subscribe) para saber quando 
   "phase"     uma fase (foco ou pausa) terminou ou foi trocada
   "data"      tarefas, subtarefas, grupos ou a tarefa em foco mudaram
   "settings"  as configurações mudaram
+  "day"       virou o dia (pendências levadas, recorrentes criadas)
+  "reminder"  chegou a hora de revisar o dia e planejar amanhã
 Notificações e som entram por injeção (notify, play_sound), assim os testes não dependem do sistema.
 """
 
@@ -16,7 +18,7 @@ from pathlib import Path
 from .ai import analysis as ai_analysis, summary as ai_summary
 from .ai.claude_client import AIUnavailable, ClaudeClient
 from .ai.estimator import Estimator
-from . import db, export, groups as groups_model, settings as settings_store, today as today_model
+from . import db, export, groups as groups_model, planning, settings as settings_store, today as today_model
 from .repository import Repository
 from .timer import PHASE_LABELS, Phase, PomodoroTimer
 from .tracking import Tracker
@@ -50,6 +52,11 @@ class Controller:
         self.timer.add_listener(self.tracker.handle)
         self.timer.add_listener(self._on_timer_event)
 
+        # Virada do dia: ao abrir o app já aplica o que ficou pendente e as recorrentes que venceram.
+        self._current_day = self._today()
+        planning.start_of_day(self.repo, self._current_day, carry=self.settings["carry_over_unfinished"])
+        self._reminded_day = self._current_day if self._reminder_due() else None   # não avisa logo ao abrir
+
     # ---- inscrições -----------------------------------------------------
 
     def subscribe(self, callback):
@@ -64,6 +71,29 @@ class Controller:
 
     def _changed(self):
         self._emit("data")
+
+    # ---- relógio do dia ---------------------------------------------------
+
+    def _reminder_due(self):
+        """Já passou do horário do lembrete de fim do dia (e ele está ligado)?"""
+        at = self.settings.get("end_of_day_reminder") or ""
+        return bool(at) and self._now().strftime("%H:%M") >= at
+
+    def poll_clock(self):
+        """Chamado de tempos em tempos pelo app: vira o dia e dispara o lembrete de fim do dia."""
+        today = self._today()
+        if today != self._current_day:
+            self._current_day = today
+            planning.start_of_day(self.repo, today, carry=self.settings["carry_over_unfinished"])
+            self.tracker.invalidate()
+            self._emit("day")
+            self._changed()
+        if self._reminded_day != today and self._reminder_due():
+            self._reminded_day = today
+            review = self.repo.get_day_review(today.isoformat()) or {}
+            if not review.get("confirmed_at"):
+                self._notify("Fim do dia: que tal revisar o que ficou e planejar amanhã?")
+                self._emit("reminder")
 
     # ---- timer e rastreamento -------------------------------------------
 
@@ -156,6 +186,7 @@ class Controller:
             result = "subtask"
         elif task_id:
             self.repo.set_task_status(task_id, "done")
+            planning.spawn_recurring(self.repo, self.today())
             self.tracker.set_active(None)
             result = "task"
         else:
@@ -217,6 +248,8 @@ class Controller:
 
     def set_task_done(self, task_id, done):
         self.repo.set_task_status(task_id, "done" if done else "todo")
+        if done:
+            planning.spawn_recurring(self.repo, self.today())      # a próxima ocorrência já fica agendada
         self._changed()
 
     def add_subtask(self, task_id, title, estimate_min=None):
@@ -240,6 +273,62 @@ class Controller:
     def set_subtask_done(self, subtask_id, done):
         self.repo.set_subtask_done(subtask_id, done)
         self._changed()
+
+    # ---- revisar o dia e planejar amanhã ------------------------------------
+
+    def plan_day(self):
+        """O dia que está sendo revisado (hoje) e o seguinte, como datas."""
+        today = self.today()
+        return today, planning.tomorrow(today)
+
+    def day_review(self):
+        """Resumo de hoje e as pendências que esperam um destino."""
+        return planning.review_day(self.repo, self.today())
+
+    def default_destinations(self, leftovers):
+        return planning.default_destinations(leftovers, self.today(), carry=self.settings["carry_over_unfinished"])
+
+    def break_suggestion(self, leftovers):
+        """(task_id, texto) quando uma tarefa adiada merece ser quebrada em passos; senão None."""
+        return planning.break_suggestion(leftovers) if self.ai_enabled else None
+
+    def set_day_mood(self, mood):
+        self.repo.save_day_review(self.today().isoformat(), mood=mood)
+
+    def tomorrow_plan(self):
+        """Lista de amanhã com a previsão da IA e a capacidade do dia: {"day", "items", "capacity", "free_min"}."""
+        _, day = self.plan_day()
+        estimator = self.estimator if self.ai_enabled else None
+        items = planning.plan_items(self.repo, day, estimator=estimator)
+        free = planning.free_minutes_for(self.repo, day, self.settings["free_minutes_per_day"])
+        return {"day": day, "items": items, "free_min": free, "capacity": planning.capacity(items, free)}
+
+    def set_tomorrow_free_minutes(self, minutes):
+        _, day = self.plan_day()
+        self.repo.save_day_review(day.isoformat(), free_minutes=minutes)
+
+    def add_to_tomorrow(self, title, estimate_min=None, group_id=None):
+        _, day = self.plan_day()
+        return self.add_task(title, estimate_min, group_id, day=day)
+
+    def reorder_plan(self, ordered_ids):
+        planning.reorder_within_groups(self.repo, ordered_ids)
+        self._changed()
+
+    def confirm_plan(self, destinations):
+        """Aplica o destino de cada pendência e confirma o plano de amanhã.
+
+        destinations: {task_id: "AAAA-MM-DD" | planning.DISCARD | None}. Devolve o resumo
+        {"moved", "discarded", "skipped"}. Nada é gravado se algum destino for inválido.
+        """
+        today, day = self.plan_day()
+        result = planning.apply_destinations(self.repo, today, destinations)
+        planning.spawn_recurring(self.repo, today)
+        planning.confirm_plan(self.repo, today)                      # fecha a revisão de hoje
+        planning.confirm_plan(self.repo, day)                         # e marca o plano de amanhã
+        self.tracker.invalidate()
+        self._changed()
+        return result
 
     # ---- grupos -----------------------------------------------------------
 

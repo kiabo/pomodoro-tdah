@@ -9,7 +9,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
 gi.require_version("Notify", "0.7")
-from gi.repository import Gtk, AyatanaAppIndicator3 as AppIndicator3, Notify
+from gi.repository import GLib, Gtk, AyatanaAppIndicator3 as AppIndicator3, Notify
 
 from .controller import Controller
 from .timer import PHASE_LABELS, Phase
@@ -19,6 +19,8 @@ from .ui.main_window import MainWindow
 from .ui.theme import load_theme
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "icons"
+
+CLOCK_POLL_SECONDS = 30         # confere a virada do dia e a hora do lembrete de fim do dia
 
 PHASE_ICON = {
     Phase.WORK: "pomodoro-work",
@@ -48,6 +50,7 @@ class PomodoroApp:
                                      on_adjust=self.adjust_task)
         self._build_menu()
         self._update_indicator()
+        GLib.timeout_add_seconds(CLOCK_POLL_SECONDS, self._poll_clock)
         if not start_hidden:
             self.window.present_today()
 
@@ -61,6 +64,12 @@ class PomodoroApp:
     def show_main(self):
         self.compact.hide()
         self.window.present_today()
+        self._update_menu_labels()
+
+    def show_plan(self):
+        """Abre "Revisar e planejar amanhã" (menu da bandeja)."""
+        self.compact.hide()
+        self.window.present_plan()
         self._update_menu_labels()
 
     def hide_compact(self):
@@ -90,6 +99,7 @@ class PomodoroApp:
             return item
 
         add("Abrir o Foco", self.show_main)
+        add("Revisar o dia e planejar amanhã", self.show_plan)
         self.compact_item = add("Mostrar o modo compacto", self.toggle_compact)
         menu.append(Gtk.SeparatorMenuItem())
         self.toggle_item = add("Iniciar", self.controller.toggle_timer)
@@ -106,6 +116,10 @@ class PomodoroApp:
             self._update_indicator()
         elif kind == "started" and self.controller.settings["compact_on_focus_start"] and self.window.get_visible():
             self.show_compact()         # "Ir para o compacto ao iniciar um foco"
+
+    def _poll_clock(self):
+        self.controller.poll_clock()
+        return True
 
     def _update_menu_labels(self):
         self.compact_item.set_label("Esconder o modo compacto" if self.compact.get_visible()

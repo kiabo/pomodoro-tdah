@@ -2,7 +2,7 @@
 
   scripts/preview.sh                  abre a janela com os dados de exemplo (num banco temporário)
   scripts/preview.sh --png saida.png  gera uma imagem, sem abrir janela
-  scripts/preview.sh --screen editor|new-task|groups|settings[-compact|-sound|-ai] [--png saida.png]
+  scripts/preview.sh --screen editor|new-task|groups|analysis|plan|settings[-compact|-sound|-ai] [--png saida.png]
 """
 
 import argparse
@@ -90,7 +90,8 @@ def fill_sample_data(controller):
             repo.set_task_status(old["id"], "done")
             repo.conn.execute("UPDATE tasks SET done_at = '2026-11-02T18:00:00' WHERE id = ?", (old["id"],))
     # Recorrentes (agendadas para depois, para não aparecerem em Hoje).
-    controller.create_task_full("Responder e-mails", group_id=work["id"], day="2026-11-10", estimate_min=20,
+    tomorrow = (controller.today() + timedelta(days=1)).isoformat()
+    controller.create_task_full("Responder e-mails", group_id=work["id"], day=tomorrow, estimate_min=20,
                                 repeat_rule="weekdays")
     controller.create_task_full("Escrever relatório mensal", group_id=work["id"], day="2026-12-09", estimate_min=90,
                                 repeat_rule="monthly:9")
@@ -98,6 +99,14 @@ def fill_sample_data(controller):
     legacy = repo.create_group("Projeto antigo", color="#8A857C")
     repo.archive_group(legacy["id"])
     controller.add_task("Marcar dentista", 10, home["id"])
+    # Fim do dia: o que já está para amanhã, uma tarefa adiada e o humor do dia.
+    study = next(g for g in repo.list_groups() if g["name"] == "Estudos")
+    health = next(g for g in repo.list_groups() if g["name"] == "Saúde")
+    controller.add_to_tomorrow("Estudar capítulo 4", 60, study["id"])
+    controller.add_to_tomorrow("Caminhada", 30, health["id"])
+    pitch = next(t for t in repo.list_tasks() if t["title"] == "Preparar apresentação para o cliente")
+    repo.postpone_task(pitch["id"], controller.today().isoformat())
+    controller.set_day_mood("ok")
 
     # Histórico do relatório: manhã com uma sessão interrompida por distração.
     base = datetime.now().replace(hour=14, minute=5, second=0, microsecond=0)
@@ -130,7 +139,7 @@ def build_preview():
 
 COMPACT_SCREENS = ("compact-focus", "compact-expanded", "compact-break", "compact-mini", "compact-alert",
                    "compact-rating")
-SCREENS = ("today", "editor", "new-task", "groups", "analysis", "settings", "settings-compact", "settings-sound",
+SCREENS = ("today", "editor", "new-task", "groups", "analysis", "plan", "settings", "settings-compact", "settings-sound",
            "settings-ai") + COMPACT_SCREENS
 
 
@@ -202,7 +211,7 @@ def render_png(path, width=1280, height=860, screen="today"):
         if screen == "editor":
             report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
             window.open_task_editor(report["id"])
-        elif screen in ("groups", "analysis"):
+        elif screen in ("groups", "analysis", "plan"):
             window.show_page(screen)
         elif screen.startswith("settings"):
             window.show_page("settings")
@@ -237,7 +246,7 @@ def main():
     if args.screen == "editor":
         report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
         window.open_task_editor(report["id"])
-    elif args.screen in ("groups", "analysis"):
+    elif args.screen in ("groups", "analysis", "plan"):
         window.show_page(args.screen)
     elif args.screen.startswith("settings"):
         window.show_page("settings")

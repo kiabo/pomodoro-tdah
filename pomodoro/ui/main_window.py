@@ -11,7 +11,7 @@ from .layout import button
 from .dialogs import new_task
 from .pages.analysis import AnalysisPage
 from .pages.groups import GroupsPage
-from .pages.placeholder import PlaceholderPage
+from .pages.plan_tomorrow import PlanTomorrowPage
 from .pages.settings_page import SettingsPage
 from .pages.task_editor import TaskEditorPage
 from .pages.today import TodayPage
@@ -48,12 +48,12 @@ class MainWindow(Gtk.Window):
         self.groups = GroupsPage(controller)
         self.settings_page = SettingsPage(controller)
         self.analysis = AnalysisPage(controller)
+        self.plan = PlanTomorrowPage(controller)
         self._show_all_override = False
         self.pages = {
             "today": self.today,
             "task": self.editor,
-            "plan": PlaceholderPage("FIM DO DIA", "Revisar e planejar amanhã",
-                                    "Aqui você vai revisar o que ficou e reanotar o dia seguinte. Chega na Fase 9."),
+            "plan": self.plan,
             "groups": self.groups,
             "analysis": self.analysis,
             "settings": self.settings_page,
@@ -76,6 +76,8 @@ class MainWindow(Gtk.Window):
         self.today.connect("show-all-tasks", lambda *_: self._set_show_all(True))
         self.groups.connect("add-recurring", lambda _g, group_id: self.open_new_task_dialog(group_id))
         self.today.task_list.on_edit = self.open_task_editor
+        self.plan.connect("done", lambda *_: self.show_page("today"))
+        self.plan.connect("open-task", lambda _p, task_id: self.open_task_editor(task_id))
         self.editor.connect("back", lambda *_: self._leave_editor())
         self.editor.connect("open-task", lambda _e, task_id: self.editor.load(task_id))
         self.editor.connect("focus-started", lambda *_: self.show_page("today"))
@@ -92,6 +94,8 @@ class MainWindow(Gtk.Window):
             self.groups.refresh()
         elif name == "analysis":
             self.analysis.refresh()
+        elif name == "plan":
+            self.plan.refresh()
         self.stack.set_visible_child_name(name)
         self.sidebar.set_page("today" if name == "task" else name)
 
@@ -123,6 +127,12 @@ class MainWindow(Gtk.Window):
         self.show_page("today")
         self.present()
 
+    def present_plan(self):
+        """Mostra a janela na tela Revisar e planejar amanhã."""
+        self.show_all()
+        self.show_page("plan")
+        self.present()
+
     def _on_key_press(self, _widget, event):
         ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
         if ctrl and event.keyval in (Gdk.KEY_k, Gdk.KEY_K):
@@ -150,6 +160,8 @@ class MainWindow(Gtk.Window):
                 self.groups.on_data(kind)
             elif page == "analysis" and kind == "data":
                 self.analysis.on_data(kind)
+            elif page == "plan" and kind in ("data", "day"):
+                self.plan.on_data(kind)
 
     def refresh_all(self):
         self.refresh_tasks()

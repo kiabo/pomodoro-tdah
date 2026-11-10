@@ -73,3 +73,10 @@ def cycle_bar_layout(segments, width, gap=3, min_width=3):
         layout.append({"kind": segment["kind"], "minutes": segment["minutes"], "x": x, "w": w})
         x += w + gap
     return layout
+
+
+def capacity_widths(width, planned_fraction, ai_fraction):
+    """Larguras da barra de capacidade do dia: (previsto, extra que a IA acrescenta). Cabem em `width`."""
+    planned = min(max(planned_fraction, 0.0), 1.0)
+    total = min(max(ai_fraction, planned), 1.0)
+    return width * planned, width * (total - planned)

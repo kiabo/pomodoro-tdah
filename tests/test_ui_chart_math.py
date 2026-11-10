@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from pomodoro.ui.chart_math import RING_START, bar_layout, cycle_bar_layout, cycle_segments, ring_arc
+from pomodoro.ui.chart_math import RING_START, capacity_widths, bar_layout, cycle_bar_layout, cycle_segments, ring_arc
 
 WEEK = [
     {"label": "Seg", "planned": 102, "real": 119},
@@ -103,6 +103,17 @@ class CycleTest(unittest.TestCase):
     def test_single_cycle_ends_with_the_long_break(self):
         self.assertEqual([(s["kind"], s["minutes"]) for s in cycle_segments(50, 10, 20, 1)],
                          [("work", 50), ("long", 20)])
+
+
+class CapacityWidthsTest(unittest.TestCase):
+    def test_segments_fit_the_bar(self):
+        self.assertEqual(capacity_widths(400, 0.5, 0.75), (200, 100))
+        self.assertEqual(capacity_widths(400, 0.0, 0.0), (0, 0))
+        self.assertEqual(capacity_widths(400, 0.5, 0.25), (200, 0))        # IA menor que o previsto: sem extra
+        self.assertEqual(capacity_widths(400, 1.5, 2.0), (400, 0))         # nunca passa da barra
+        planned, extra = capacity_widths(400, 0.9, 1.4)
+        self.assertAlmostEqual(planned, 360)
+        self.assertAlmostEqual(extra, 40)
 
 
 if __name__ == "__main__":

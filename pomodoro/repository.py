@@ -276,7 +276,7 @@ class Repository:
             task_id, scheduled_for=new_day, postponed_count=task["postponed_count"] + 1
         )
 
-    def duplicate_task(self, task_id, scheduled_for=None):
+    def duplicate_task(self, task_id, scheduled_for=None, repeat_rule=None):
         """Copia a tarefa e suas subtarefas como novas (a fazer), sem histórico de tempo."""
         task = self.get_task(task_id)
         if task is None:
@@ -284,6 +284,7 @@ class Repository:
         copy = self.create_task(
             task["group_id"], task["title"], estimate_min=task["estimate_min"],
             scheduled_for=scheduled_for, notes=task["notes"], energy=task["energy"],
+            repeat_rule=repeat_rule,
         )
         for sub in self.list_subtasks(task_id):
             self.add_subtask(copy["id"], sub["title"], sub["estimate_min"])
