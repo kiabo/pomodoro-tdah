@@ -3,7 +3,23 @@
 App de desktop (Python + GTK3) com grupos, tarefas e subtarefas, tempo previsto × real e análise por IA.
 O design está em `pomodoro-tdah.figcraft`.
 
-## Dependências do sistema (Ubuntu)
+## Instalação (Ubuntu / Debian e derivados)
+
+Baixe o `.deb` mais recente em [Releases](../../releases/latest) e instale:
+
+```
+sudo apt install ./pomodoro-tdah_*_all.deb
+```
+
+O `apt` instala as dependências sozinho. Depois é só procurar "Pomodoro TDAH" no menu de aplicativos,
+ou rodar `pomodoro-tdah`. Para atualizar, baixe o `.deb` novo e rode o mesmo comando.
+Para remover: `sudo apt remove pomodoro-tdah` (seus dados em `~/.local/share/pomodoro-app/` são mantidos).
+
+Quer ajudar? Veja o [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Rodar a partir do código-fonte
+
+### Dependências do sistema (Ubuntu)
 
 ```
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
@@ -27,6 +43,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
 |---|---|
 | Rodar o app | `./run.sh` |
 | Todos os testes | `scripts/test.sh` (os de interface precisam de tela e do `python3-gi-cairo`) |
+| Gerar o instalador `.deb` | `scripts/build-deb.sh` (saída em `dist/`) |
 | Rodar só na bandeja | `./run.sh --hidden` |
 | Modo compacto | botão "Modo compacto" na janela, ou pelo ícone da bandeja. Arraste para mover; duplo clique vira pílula; clique direito: menu |
 | Ver as telas com dados de exemplo | `scripts/preview.sh [--screen editor\|new-task\|groups\|analysis\|settings[-compact\|-sound\|-ai]\|compact-focus\|-expanded\|-break\|-mini\|-alert\|-rating] [--png arquivo.png]` |

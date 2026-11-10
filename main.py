@@ -5,6 +5,13 @@ import os
 import sys
 from pathlib import Path
 
+if "--version" in sys.argv[1:]:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from pomodoro.version import __version__
+
+    print(f"pomodoro-tdah {__version__}")
+    sys.exit(0)
+
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
 LOCK_FILE = RUNTIME_DIR / "pomodoro-app.lock"
 

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Pomodoro TDAH
+GenericName=Pomodoro
+Comment=Pomodoro com grupos, tarefas, tempo previsto × real e análise por IA
+Comment[pt_BR]=Pomodoro com grupos, tarefas, tempo previsto × real e análise por IA
+Exec=pomodoro-tdah
+Icon=pomodoro-tdah
+Terminal=false
+Categories=Utility;GTK;
+Keywords=pomodoro;timer;tarefas;tdah;foco;
+StartupNotify=true

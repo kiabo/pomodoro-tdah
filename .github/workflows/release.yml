@@ -1,0 +1,30 @@
+name: Release
+
+# Para publicar: atualize pomodoro/version.py, faça commit e crie a tag, por exemplo:
+#   git tag v0.2.0 && git push origin v0.2.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confere se a tag bate com a versão do código
+        run: |
+          V="$(python3 -c 'from pomodoro.version import __version__; print(__version__)')"
+          [ "v$V" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} != versão $V"; exit 1; }
+      - name: Dependências do sistema
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fakeroot
+      - name: Gera o .deb
+        run: scripts/build-deb.sh
+      - name: Checksums
+        run: cd dist && sha256sum *.deb > SHA256SUMS
+      - name: Publica a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.deb dist/SHA256SUMS --generate-notes --title "$GITHUB_REF_NAME"
