@@ -633,22 +633,28 @@ class Controller:
                 done(None, error)
                 return
             issues, truncated = outcome
-            items = jira_importer.Plan(jira_importer.plan_import(self.repo, issues, self.settings["jira_project_groups"]))
+            items = jira_importer.Plan(jira_importer.plan_import(
+                self.repo, issues, self.settings["jira_project_groups"], self.settings["jira_epic_groups"]))
             items.complete = not truncated
             done(items, None)
         self._jira_call(search, fetched)
 
     def jira_import(self, items, group_choices=None):
-        """Grava os itens marcados da pré-visualização. group_choices: {chave do projeto: id do grupo}."""
+        """Grava os itens marcados da pré-visualização. group_choices: {chave do projeto: id do grupo}
+        (vale só para tarefas sem épico: as de épico vão para o grupo dele)."""
         choices = {k: v for k, v in (group_choices or {}).items() if v}
         for item in items:
-            if item.action == jira_importer.NEW and choices.get(item.issue["project_key"]):
+            if (item.action == jira_importer.NEW and item.kind == jira_importer.TASK and not item.epic
+                    and choices.get(item.issue["project_key"])):
                 item.group_id = choices[item.issue["project_key"]]
         # Só marca "fora do resultado" se a busca leu tudo; numa leitura cortada, faltar não quer dizer sumir.
         keys = [i.issue["key"] for i in items] if getattr(items, "complete", True) else None
-        result = jira_importer.apply_import(self.repo, items, all_keys=keys)
+        result = jira_importer.apply_import(self.repo, items, all_keys=keys,
+                                            epic_groups=self.settings["jira_epic_groups"])
+        changes = {"jira_epic_groups": result["epic_groups"]}
         if choices:
-            self.apply_settings({"jira_project_groups": {**self.settings["jira_project_groups"], **choices}})
+            changes["jira_project_groups"] = {**self.settings["jira_project_groups"], **choices}
+        self.apply_settings(changes)
         self.tracker.invalidate()
         self._changed()
         return result
@@ -678,10 +684,12 @@ class Controller:
                 self._emit("jira-sync")
                 return
             new = [i for i in items if i.action == jira_importer.NEW]
-            for item in new:
-                item.selected = False                      # criar tarefa é decisão do usuário
+            for item in items:
+                if item.action in (jira_importer.NEW, jira_importer.GROUP):
+                    item.selected = False                  # criar tarefa, subtarefa ou grupo é decisão do usuário
             keys = [i.issue["key"] for i in items] if items.complete else None
-            result = jira_importer.apply_import(self.repo, items, all_keys=keys)
+            result = jira_importer.apply_import(self.repo, items, all_keys=keys,
+                                                epic_groups=self.settings["jira_epic_groups"])
             self.jira_sync_status = {"at": self._now(), "ok": True, "updated": result["updated"], "new": len(new),
                                      "message": ""}
             fresh = {i.issue["key"] for i in new} - self._jira_notified_new

@@ -117,7 +117,7 @@ class ConflictTest(unittest.TestCase):
         self.assertEqual(self.repo.jira_link(task_id)["conflicts"], "")
 
 
-class ControllerJ5Test(unittest.TestCase):
+class J5Case(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.fake = FakeJira(pages=[[raw_issue("ABC-1", summary="Original")]])
@@ -150,6 +150,7 @@ class ControllerJ5Test(unittest.TestCase):
     def writes(self):
         return [c for c in self.fake.calls if c["method"] in ("POST", "PUT") and "search" not in c["url"]]
 
+class ControllerJ5Test(J5Case):
     def test_off_by_default(self):
         self.c.poll_clock()
         self.assertEqual(self.fake.calls, [])
@@ -254,6 +255,49 @@ class ControllerJ5Test(unittest.TestCase):
         plain = self.c.add_task("Sem Jira")
         self.c.focus(plain["id"])
         self.assertIsNone(self.c.focus_context()["jira_key"])
+
+
+class ControllerHierarchyTest(J5Case):
+    """Mesmo cenário do controlador, agora com épicos e sub-tarefas."""
+
+    EPIC_PAGE = [raw_issue("ABC-10", summary="Plataforma", issue_type="Epic", level=1),
+                 raw_issue("ABC-11", summary="Tarefa A", parent="ABC-10", parent_title="Plataforma"),
+                 raw_issue("ABC-12", summary="Filha", issue_type="Subtarefa", level=-1, subtask=True,
+                           parent="ABC-11", parent_type="Tarefa")]
+
+    def test_import_creates_groups_subtasks_and_remembers_epic_mapping(self):
+        self.fake.pages = [list(self.EPIC_PAGE)]
+        items, _ = self.preview()
+        result = self.c.jira_import(items)
+        self.assertEqual((result["created"], result["groups"], result["subtasks"]), (1, 1, 1))
+        group_id = self.c.settings["jira_epic_groups"]["ABC-10"]
+        self.assertEqual(self.c.repo.get_group(group_id)["name"], "Plataforma")
+        task_id = self.c.repo.jira_link_by_key("ABC-11")["task_id"]
+        self.assertEqual(self.c.repo.get_task(task_id)["group_id"], group_id)
+        self.assertEqual(self.c.repo.list_subtasks(task_id)[0]["jira_key"], "ABC-12")
+        self.fake.pages = [list(self.EPIC_PAGE)]
+        again, _ = self.preview()                                           # o mapa salvo evita grupo duplicado
+        self.assertEqual({i.action for i in again}, {"same"})
+
+    def test_project_choice_does_not_override_epic_group(self):
+        self.fake.pages = [list(self.EPIC_PAGE) + [raw_issue("ABC-20", summary="Sem épico")]]
+        items, _ = self.preview()
+        other = self.c.repo.create_group("Trabalho")
+        self.c.jira_import(items, {"ABC": other["id"]})
+        epic_task = self.c.repo.get_task(self.c.repo.jira_link_by_key("ABC-11")["task_id"])
+        loose = self.c.repo.get_task(self.c.repo.jira_link_by_key("ABC-20")["task_id"])
+        self.assertNotEqual(epic_task["group_id"], other["id"])
+        self.assertEqual(loose["group_id"], other["id"])
+
+    def test_auto_sync_never_creates_groups_or_subtasks(self):
+        self.c.apply_settings({"jira_auto_sync_min": 15})
+        self.fake.pages = [list(self.EPIC_PAGE)]
+        groups = len(self.c.repo.list_groups())
+        self.c.poll_clock()
+        self.assertEqual((len(self.c.repo.list_groups()), self.c.repo.list_jira_links()), (groups, []))
+        self.assertEqual(self.c.conn.execute("SELECT COUNT(*) FROM subtasks").fetchone()[0], 0)
+        self.assertEqual(self.c.jira_sync_status["new"], 2)
+        self.assertEqual(self.writes(), [])
 
 
 if __name__ == "__main__":

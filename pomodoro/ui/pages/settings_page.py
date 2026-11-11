@@ -316,7 +316,7 @@ class SettingsPage(Gtk.Box):
             "jira_url": self._jira_entry("jira_url", "https://empresa.atlassian.net"),
             "jira_email": self._jira_entry("jira_email", "voce@empresa.com"),
             "jira_token": self._jira_entry("jira_token", "token da API", secret=True),
-            "jira_jql": self._jira_entry("jira_jql", "padrão: minhas issues em aberto", width=34),
+            "jira_jql": self._jira_entry("jira_jql", "padrão: minhas, criadas por mim e sem responsável", width=34),
         }
         self.jira_status = label("", "small", "muted", wrap=True)
         self.jira_auto_select = Select(AUTO_SYNC_CHOICES, self._closest_auto_sync(self.settings["jira_auto_sync_min"]),
@@ -333,7 +333,7 @@ class SettingsPage(Gtk.Box):
             setting_row("E-mail da conta", None, self.jira_entries["jira_email"]),
             setting_row("Token da API", "Crie em id.atlassian.com → Segurança → Tokens de API. "
                         "Fica só neste computador. Se vazio, usa JIRA_API_TOKEN.", self.jira_entries["jira_token"]),
-            setting_row("Busca (JQL)", "Vazio traz só as suas issues em aberto.", self.jira_entries["jira_jql"]),
+            setting_row("Busca (JQL)", "Vazio traz as em aberto que são suas, criadas por você ou sem responsável.", self.jira_entries["jira_jql"]),
             setting_row("Atualizar sozinho", "Só lê do Jira e atualiza o que você já importou. "
                         "Issues novas só avisam; nunca escreve no Jira.", self.jira_auto_select),
             self.jira_sync_label,

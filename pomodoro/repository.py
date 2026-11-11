@@ -26,6 +26,7 @@ SUBTASK_FIELDS = {"title", "estimate_min", "done", "position"}
 JIRA_LINK_FIELDS = {
     "issue_id", "project_key", "url", "remote_title", "remote_description", "remote_status",
     "remote_status_category", "remote_estimate_min", "remote_updated", "missing", "conflicts",
+    "issue_type", "epic_key",
 }
 
 
@@ -614,6 +615,9 @@ class Repository:
             "SELECT COALESCE(SUM(s.seconds), 0) FROM sessions s JOIN jira_worklogs w ON w.session_id = s.id"
             " WHERE w.task_id = ?", (task_id,)).fetchone()
         return row[0]
+
+    def subtask_by_jira_key(self, issue_key):
+        return _row(self.conn.execute("SELECT * FROM subtasks WHERE jira_key = ?", (issue_key,)).fetchone())
 
     def set_subtask_jira_key(self, subtask_id, issue_key):
         with self.conn:

@@ -45,8 +45,14 @@ só locais. **Nada é enviado ao Jira sem você pedir e confirmar numa janela qu
 1. Crie um token em id.atlassian.com → Segurança → Tokens de API.
 2. Em Configurações → Jira, informe o endereço (`https://empresa.atlassian.net`), o e-mail da conta e o token
    (ou exporte `JIRA_API_TOKEN`) e use "Testar conexão".
-3. "Importar minhas issues…" mostra o que vai entrar (por padrão, `assignee = currentUser()` em aberto, ou a sua JQL)
-   e em qual grupo cada projeto cai. As tarefas ganham o selo `ABC-123`, e o editor mostra a issue.
+3. "Importar minhas issues…" mostra o que vai entrar. Por padrão vêm as issues em aberto que são suas, criadas por
+   você ou ainda **sem responsável** (muita coisa útil fica sem responsável no Jira); dá para trocar pela sua JQL.
+   As tarefas ganham o selo `ABC-123`, e o editor mostra o tipo da issue (Tarefa, Bug…) e o épico.
+
+**Épicos e hierarquia:** cada épico vira um **grupo** do app e as tarefas dele entram nesse grupo (o épico em si não
+vira tarefa; o grupo ganha o nome dele e, depois, o nome é seu). Sub-tarefas do Jira viram **subtarefas locais** da
+tarefa-pai. O que não tem épico vai para o grupo que você escolher para cada projeto (ou "Jira"). O épico vem junto da
+filha, então até épicos já resolvidos aparecem como grupo se ainda houver tarefa aberta nele.
 
 Para escrever no Jira, abra a tarefa no editor, no cartão "Jira":
 

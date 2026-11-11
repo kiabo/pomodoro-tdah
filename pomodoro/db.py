@@ -160,6 +160,11 @@ MIGRATIONS = [
     # 6: divergências. Quando o Jira muda o título ou a previsão e o usuário já tinha mudado o dele, o do usuário
     # é mantido e o campo fica anotado aqui ("title", "estimate") até ele escolher.
     "ALTER TABLE jira_links ADD COLUMN conflicts TEXT NOT NULL DEFAULT '';",
+    # 7: tipo da issue (Tarefa, Bug, Epic...) e o épico a que ela pertence, para mostrar na tela.
+    """
+    ALTER TABLE jira_links ADD COLUMN issue_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE jira_links ADD COLUMN epic_key TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)

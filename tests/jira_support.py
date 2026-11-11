@@ -4,13 +4,18 @@ import json
 
 
 def raw_issue(key="ABC-1", summary="Corrigir login", status="To Do", category="new", seconds=3600,
-              description="Detalhes", updated="2026-11-10T10:00:00.000-0300", project="ABC"):
+              description="Detalhes", updated="2026-11-10T10:00:00.000-0300", project="ABC", issue_type="Task",
+              level=0, subtask=False, parent=None, parent_title="Pai", parent_type="Epic"):
     fields = {
         "summary": summary, "description": description,
         "status": {"name": status, "statusCategory": {"key": category}},
         "project": {"key": project, "name": "Projeto " + project},
-        "updated": updated, "issuetype": {"name": "Task"},
+        "updated": updated, "issuetype": {"name": issue_type, "hierarchyLevel": level, "subtask": subtask},
     }
+    if parent:
+        fields["parent"] = {"key": parent, "fields": {
+            "summary": parent_title,
+            "issuetype": {"name": parent_type, "hierarchyLevel": 1 if parent_type == "Epic" else 0}}}
     if seconds is not None:
         fields["timetracking"] = {"originalEstimateSeconds": seconds}
     return {"id": key.split("-")[1] + "00", "key": key, "fields": fields}

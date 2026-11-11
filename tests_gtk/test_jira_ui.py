@@ -350,5 +350,30 @@ class JiraJ5UiTest(JiraUiCase):
         self.assertTrue(window.focus_card.parent.get_visible())
 
 
+class JiraHierarchyUiTest(JiraUiCase):
+    def test_dialog_announces_epic_groups_and_hides_project_choice_for_epic_children(self):
+        self.fake.pages = [[
+            raw_issue("ABC-10", summary="Plataforma", issue_type="Epic", level=1),
+            raw_issue("ABC-11", summary="Tarefa A", parent="ABC-10", parent_title="Plataforma"),
+            raw_issue("ABC-12", summary="Filha", issue_type="Subtarefa", level=-1, subtask=True,
+                      parent="ABC-11", parent_type="Tarefa"),
+            raw_issue("XYZ-1", summary="Solta", project="XYZ")]]
+        items, _ = self.preview()
+        dialog = JiraImportDialog(None, self.controller, items)
+        self.addCleanup(dialog.destroy)
+        texts = labels(dialog.get_content_area())
+        self.assertTrue(any("Cada épico vira um grupo: Plataforma" in t for t in texts))
+        self.assertTrue(any("2 novas" in t for t in texts))                  # as tarefas; o épico não conta
+        self.assertEqual(list(dialog.group_selects), ["XYZ"])                # só a tarefa sem épico escolhe grupo
+        self.assertTrue(any("subtarefa" in t for t in texts))
+        self.controller.jira_import(dialog.items, dialog.group_choices())
+        task_id = self.repo.jira_link_by_key("ABC-11")["task_id"]
+        editor = TaskEditorPage(self.controller)
+        self.addCleanup(editor.destroy)
+        editor.load(task_id)
+        self.assertIn("épico ABC-10", editor.jira_status_label.get_text())
+        self.assertEqual([r.jira_badge.get_text() for r in editor.sub_rows_box.get_children()], ["ABC-12"])
+
+
 if __name__ == "__main__":
     unittest.main()

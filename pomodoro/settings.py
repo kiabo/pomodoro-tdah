@@ -64,6 +64,7 @@ DEFAULT_SETTINGS = {
     "jira_jql": "",                    # vazio = minhas issues em aberto
     "jira_auto_sync_min": 0,           # 0 = desligada; senão atualiza o espelho (só leitura) a cada N min
     "jira_project_groups": {},         # {chave do projeto: id do grupo} lembrado entre importações
+    "jira_epic_groups": {},            # {chave do épico: id do grupo}: cada épico do Jira vira um grupo
 }
 
 _RANGES = {
@@ -94,7 +95,7 @@ def _valid(key, value):
         return isinstance(value, list) and all(v in COMPACT_FIELDS for v in value)
     if key == "compact_idle_opacity":
         return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.2 <= value <= 1.0
-    if key == "jira_project_groups":
+    if key in ("jira_project_groups", "jira_epic_groups"):
         return isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
     if key == "ai_model":
         return isinstance(value, str) and bool(value.strip())

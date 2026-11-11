@@ -16,8 +16,10 @@ import urllib.request
 
 log = logging.getLogger(__name__)
 
-DEFAULT_JQL = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
-SEARCH_FIELDS = ["summary", "description", "status", "project", "timetracking", "updated", "issuetype"]
+# Minhas, criadas por mim ou ainda sem responsável (muita coisa útil fica sem responsável no Jira).
+DEFAULT_JQL = ("(assignee = currentUser() OR reporter = currentUser() OR assignee is EMPTY) "
+               "AND resolution = Unresolved ORDER BY updated DESC")
+SEARCH_FIELDS = ["summary", "description", "status", "project", "timetracking", "updated", "issuetype", "parent"]
 PAGE_SIZE = 100
 MAX_PAGES = 10
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
@@ -76,9 +78,24 @@ def _text(value):
     return "".join(parts).strip()
 
 
+def _is_epic(issue_type):
+    return (issue_type or {}).get("hierarchyLevel", 0) >= 1 or (issue_type or {}).get("name") == "Epic"
+
+
 def parse_issue(raw, base_url):
-    """Converte a issue crua da API no dicionário que o app usa."""
+    """Converte a issue crua da API no dicionário que o app usa.
+
+    Além dos dados básicos: issue_type, is_epic, is_subtask e o pai (parent) com o tipo dele. O pai vem
+    embutido na filha, então o épico não precisa estar no resultado da busca (pode até estar resolvido).
+    """
     fields = raw.get("fields") or {}
+    kind = fields.get("issuetype") or {}
+    raw_parent = fields.get("parent") or {}
+    parent = None
+    if raw_parent.get("key"):
+        parent_type = (raw_parent.get("fields") or {}).get("issuetype") or {}
+        parent = {"key": raw_parent["key"], "title": ((raw_parent.get("fields") or {}).get("summary") or "").strip()
+                  or raw_parent["key"], "is_epic": _is_epic(parent_type)}
     status = fields.get("status") or {}
     project = fields.get("project") or {}
     seconds = (fields.get("timetracking") or {}).get("originalEstimateSeconds") or 0
@@ -94,7 +111,10 @@ def parse_issue(raw, base_url):
         "project_name": project.get("name") or "",
         "estimate_min": round(seconds / 60) if seconds else None,
         "updated": fields.get("updated") or "",
-        "issue_type": (fields.get("issuetype") or {}).get("name") or "",
+        "issue_type": kind.get("name") or "",
+        "is_epic": _is_epic(kind),
+        "is_subtask": bool(kind.get("subtask")),
+        "parent": parent,
         "url": f"{base_url}/browse/{key}",
     }
 

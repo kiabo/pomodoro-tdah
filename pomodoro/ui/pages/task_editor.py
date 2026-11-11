@@ -374,7 +374,9 @@ class TaskEditorPage(Gtk.Box):
             return
         task = detail["task"]
         self.jira_key_label.set_text(link["issue_key"])
-        self.jira_status_label.set_text(link["remote_status"] and f"status no Jira: {link['remote_status']}")
+        parts = [link["issue_type"], f"épico {link['epic_key']}" if link["epic_key"] else "",
+                 f"status no Jira: {link['remote_status']}" if link["remote_status"] else ""]
+        self.jira_status_label.set_text(" · ".join(p for p in parts if p))
         self.jira_open.set_sensitive(bool(link["url"]))
         differs = link["remote_title"] and link["remote_title"] != task["title"]
         self.jira_title_label.set_text(f"Título no Jira: {link['remote_title']}" if differs else "")
