@@ -15,7 +15,7 @@ from .test_timer import FakeScheduler
 SETTINGS = {"jira_url": "https://x.atlassian.net", "jira_email": "eu@exemplo.com", "jira_token": "tok"}
 
 
-class ControllerJiraTest(unittest.TestCase):
+class JiraControllerCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.fake = FakeJira(pages=[[raw_issue("ABC-1"), raw_issue("XYZ-2", project="XYZ", summary="Outra")]])
@@ -37,6 +37,7 @@ class ControllerJiraTest(unittest.TestCase):
         call(*args, lambda result, error: box.append((result, error)))
         return box[0]
 
+class ControllerJiraTest(JiraControllerCase):
     def test_not_configured_does_not_call_jira(self):
         c = self.make(jira_token="")
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -102,3 +103,99 @@ class ControllerJiraTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ControllerJiraPushTest(JiraControllerCase):
+    def linked(self, **fields):
+        c = self.make()
+        items, _ = self.result_of(c.jira_preview)
+        c.jira_import(items)
+        self.fake.calls.clear()
+        task_id = c.repo.jira_link_by_key("ABC-1")["task_id"]
+        if fields:
+            c.repo.update_task(task_id, **fields)
+        return c, task_id
+
+    def writes(self):
+        return [call for call in self.fake.calls if call["method"] in ("POST", "PUT") and "search" not in call["url"]]
+
+    def test_preparing_never_writes(self):
+        c, task_id = self.linked(notes="minhas notas", title="Outro")
+        c.jira_prepare_comment(task_id)
+        c.jira_prepare_fields(task_id)
+        self.result_of(c.jira_prepare_status, task_id)
+        self.assertEqual(self.writes(), [])
+
+    def test_push_requires_confirmation(self):
+        c, task_id = self.linked(notes="minhas notas")
+        preview = c.jira_prepare_comment(task_id)
+        result, error = self.result_of(c.jira_push, preview)
+        self.assertIsNone(result)
+        self.assertIn("não confirmado", error)
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(c.jira_pushes(task_id), [])
+
+    def test_comment_is_sent_and_logged(self):
+        c, task_id = self.linked(notes="minhas notas")
+        preview = c.jira_prepare_comment(task_id)
+        preview["confirmed"] = True
+        events = []
+        c.subscribe(events.append)
+        self.assertEqual(self.result_of(c.jira_push, preview), ("Enviado para ABC-1.", None))
+        self.assertEqual([w["body"] for w in self.writes()], [{"body": "minhas notas"}])
+        self.assertEqual(c.jira_pushes(task_id)[0]["kind"], "comment")
+        self.assertIn("data", events)
+
+    def test_failed_push_is_not_logged(self):
+        c, task_id = self.linked(notes="minhas notas")
+        self.fake.write_status = 403
+        preview = c.jira_prepare_comment(task_id)
+        preview["confirmed"] = True
+        result, error = self.result_of(c.jira_push, preview)
+        self.assertIn("permissão", error)
+        self.assertEqual(c.jira_pushes(task_id), [])
+
+    def test_status_flow_updates_link(self):
+        c, task_id = self.linked()
+        preview, error = self.result_of(c.jira_prepare_status, task_id)
+        self.assertEqual([o["id"] for o in preview["options"]], ["11", "31"])
+        preview.update(confirmed=True, transition_id="31")
+        self.assertEqual(self.result_of(c.jira_push, preview)[1], None)
+        self.assertEqual(c.jira_link(task_id)["remote_status"], "Done")
+        self.assertEqual(c.jira_link(task_id)["remote_status_category"], "done")
+        self.assertEqual(self.writes()[0]["body"], {"transition": {"id": "31"}})
+
+    def test_fields_flow_updates_link_so_import_stays_quiet(self):
+        c, task_id = self.linked(title="Meu título", estimate_min=45)
+        preview = c.jira_prepare_fields(task_id)
+        preview["confirmed"] = True
+        self.assertIsNone(self.result_of(c.jira_push, preview)[1])
+        link = c.jira_link(task_id)
+        self.assertEqual((link["remote_title"], link["remote_estimate_min"]), ("Meu título", 45))
+        self.fake.pages = [[raw_issue("ABC-1", summary="Meu título", seconds=45 * 60), raw_issue("XYZ-2", project="XYZ")]]
+        items, _ = self.result_of(c.jira_preview)
+        self.assertEqual(next(i for i in items if i.issue["key"] == "ABC-1").action, "same")
+
+    def test_unlinked_task_cannot_be_pushed(self):
+        c = self.make()
+        task = c.add_task("Solta")
+        with self.assertRaises(ValueError):
+            c.jira_prepare_comment(task["id"])
+        self.assertIsNone(self.result_of(c.jira_prepare_status, task["id"])[0])
+
+    def test_completing_linked_task_only_offers(self):
+        c, task_id = self.linked()
+        events = []
+        c.subscribe(events.append)
+        c.set_task_done(task_id, True)
+        self.assertIn(f"jira-offer:{task_id}", events)
+        self.assertEqual(self.writes(), [])
+        other = c.add_task("Sem Jira")
+        events.clear()
+        c.set_task_done(other["id"], True)
+        self.assertFalse([e for e in events if e.startswith("jira-offer")])
+        c.repo.save_jira_link(task_id, "ABC-1", remote_status_category="done")
+        events.clear()
+        c.set_task_done(task_id, False)
+        c.set_task_done(task_id, True)
+        self.assertFalse([e for e in events if e.startswith("jira-offer")])      # já está concluída no Jira

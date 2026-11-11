@@ -18,7 +18,7 @@ from pathlib import Path
 from .ai import analysis as ai_analysis, summary as ai_summary
 from .ai.claude_client import AIUnavailable, ClaudeClient
 from .ai.estimator import Estimator
-from .jira import importer as jira_importer
+from .jira import importer as jira_importer, push as jira_push
 from .jira.client import JiraClient, JiraError
 from . import db, export, groups as groups_model, planning, settings as settings_store, today as today_model
 from .repository import Repository
@@ -195,6 +195,8 @@ class Controller:
         else:
             return None
         self._changed()
+        if result == "task":
+            self._offer_jira_status(task_id)
         return result
 
     # ---- tarefas --------------------------------------------------------
@@ -254,6 +256,8 @@ class Controller:
         if done:
             planning.spawn_recurring(self.repo, self.today())      # a próxima ocorrência já fica agendada
         self._changed()
+        if done:
+            self._offer_jira_status(task_id)
 
     def add_subtask(self, task_id, title, estimate_min=None):
         sub = self.repo.add_subtask(task_id, title, estimate_min)
@@ -635,6 +639,85 @@ class Controller:
 
     def jira_link(self, task_id):
         return self.repo.jira_link(task_id)
+
+    # ---- Jira: enviar o que o usuário confirmar ------------------------------
+    # Fluxo: jira_prepare_* monta a pré-visualização -> a janela mostra -> o usuário confirma
+    # (preview["confirmed"] = True) -> jira_push envia exatamente aquilo. Nada vai ao Jira sem isso.
+
+    def _linked(self, task_id):
+        task, link = self.repo.get_task(task_id), self.repo.jira_link(task_id)
+        if task is None or link is None:
+            raise ValueError("Esta tarefa não está ligada a uma issue do Jira.")
+        return task, link
+
+    def jira_prepare_comment(self, task_id):
+        task, link = self._linked(task_id)
+        return jira_push.comment_preview(task, link)
+
+    def jira_prepare_fields(self, task_id):
+        task, link = self._linked(task_id)
+        return jira_push.fields_preview(task, link)
+
+    def jira_prepare_status(self, task_id, done):
+        """Busca no Jira as mudanças de status possíveis. done(pré-visualização, erro)."""
+        try:
+            task, link = self._linked(task_id)
+        except ValueError as error:
+            done(None, str(error))
+            return
+
+        def fetched(transitions, error):
+            if error:
+                done(None, error)
+                return
+            try:
+                done(jira_push.status_preview(task, link, transitions), None)
+            except ValueError as problem:
+                done(None, str(problem))
+        self._jira_call(lambda client: client.transitions(link["issue_key"]), fetched)
+
+    def jira_push(self, preview, done):
+        """Envia a pré-visualização confirmada. done(mensagem, erro). Registra o envio só se der certo."""
+        try:
+            jira_push.validate(preview)
+        except ValueError as error:
+            done(None, str(error))
+            return
+
+        def finished(result, error):
+            if error:
+                done(None, error)
+                return
+            self._after_push(preview, result)
+            done(f"Enviado para {preview['issue_key']}.", None)
+        self._jira_call(lambda client: jira_push.execute(client, preview), finished)
+
+    def _after_push(self, preview, result):
+        task_id, key = preview["task_id"], preview["issue_key"]
+        link = self.repo.jira_link(task_id)
+        if link:
+            if preview["kind"] == jira_push.STATUS:
+                option = result["option"]
+                self.repo.save_jira_link(task_id, key, remote_status=option["to_status"],
+                                         remote_status_category=option["to_category"])
+            elif preview["kind"] == jira_push.FIELDS:
+                updates = {}
+                if "title" in result["fields"]:
+                    updates["remote_title"] = result["fields"]["title"]
+                if "estimate" in result["fields"]:
+                    updates["remote_estimate_min"] = result["fields"]["estimate"]
+                self.repo.save_jira_link(task_id, key, **updates)
+        self.repo.log_jira_push(task_id, key, preview["kind"], result["detail"])
+        self._changed()
+
+    def jira_pushes(self, task_id):
+        return self.repo.list_jira_pushes(task_id)
+
+    def _offer_jira_status(self, task_id):
+        """Avisa a tela que uma tarefa ligada ao Jira foi concluída (ela só pergunta; não envia nada)."""
+        link = self.repo.jira_link(task_id) if task_id else None
+        if link and link["remote_status_category"] != "done":
+            self._emit(f"jira-offer:{task_id}")
 
     def jira_unlink(self, task_id):
         """Solta a tarefa da issue. Não mexe no Jira."""

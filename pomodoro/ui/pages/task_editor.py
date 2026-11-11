@@ -231,6 +231,11 @@ class TaskEditorPage(Gtk.Box):
         self.jira_estimate_label = label("", "small", "muted")
         self.jira_use_estimate = button("Usar a previsão do Jira", "btn-link", on_click=self._on_jira_use_estimate)
         self.jira_warning = label("", "small", "text-amber", wrap=True)
+        self.jira_last_push = label("", "caption", "muted", wrap=True)
+        self.jira_send_comment = button("Enviar notas como comentário…", "btn-secondary", on_click=self._on_jira_comment)
+        self.jira_send_fields = button("Atualizar título e previsão…", "btn-secondary", on_click=self._on_jira_fields)
+        self.jira_send_status = button("Mudar status…", "btn-secondary", on_click=self._on_jira_status)
+        self.jira_actions = hbox(self.jira_send_comment, self.jira_send_fields, self.jira_send_status, spacing=8)
         self.jira_description = Gtk.TextView()
         style(self.jira_description, "notes-view")
         self.jira_description.set_editable(False)
@@ -243,9 +248,10 @@ class TaskEditorPage(Gtk.Box):
         self.jira_description_scroll.set_propagate_natural_height(True)
         self.jira_description_scroll.add(self.jira_description)
         self.jira_card = vbox(
-            label("JIRA · SOMENTE LEITURA", "eyebrow"), head, self.jira_title_label, self.jira_warning,
+            label("JIRA · NADA É ENVIADO SEM VOCÊ CONFIRMAR", "eyebrow"), head, self.jira_title_label, self.jira_warning,
             hbox(self.jira_estimate_label, self.jira_use_estimate, spacing=10), self.jira_description_scroll,
-            label("Seus passos, notas e previsão ficam só aqui. Nada é enviado ao Jira.", "caption", "faint"),
+            self.jira_actions, self.jira_last_push,
+            label("Seus passos, notas e previsão ficam só aqui, a não ser que você envie.", "caption", "faint"),
             spacing=8, classes=("card-soft",))
         self.jira_card.show_all()               # os filhos já ficam visíveis; só o cartão aparece sob demanda
         self.jira_card.set_no_show_all(True)
@@ -372,6 +378,10 @@ class TaskEditorPage(Gtk.Box):
         self.jira_use_estimate.set_visible(bool(estimate) and estimate != task["estimate_min"])
         self.jira_description.get_buffer().set_text(link["remote_description"] or "")
         self.jira_description_scroll.set_visible(bool(link["remote_description"]))
+        pushes = self.controller.jira_pushes(task["id"])
+        self.jira_last_push.set_text(
+            f"Último envio: {pushes[0]['detail']} · {pushes[0]['sent_at'].replace('T', ' ')[:16]}" if pushes else "")
+        self.jira_last_push.set_visible(bool(pushes))
 
     def _on_jira_open(self):
         link = (self._detail or {}).get("jira")
@@ -383,6 +393,36 @@ class TaskEditorPage(Gtk.Box):
         if link and link["remote_estimate_min"]:
             self._try(lambda: self.controller.update_task(self.task_id, estimate_min=link["remote_estimate_min"]),
                       full=True)
+
+    def _after_jira_push(self, message, error):
+        self.notice(error or message, error=bool(error))
+        detail = self.controller.task_detail(self.task_id) if self.task_id else None
+        if detail:
+            self._fill_jira(detail)            # só o cartão: não mexe no que estiver sendo digitado
+
+    def _send_to_jira(self, preview):
+        from ..dialogs.jira_push import send
+        send(self.get_toplevel(), self.controller, preview, self._after_jira_push)
+
+    def _on_jira_comment(self):
+        try:
+            self._send_to_jira(self.controller.jira_prepare_comment(self.task_id))
+        except ValueError as error:
+            self.notice(str(error), error=True)
+
+    def _on_jira_fields(self):
+        try:
+            self._send_to_jira(self.controller.jira_prepare_fields(self.task_id))
+        except ValueError as error:
+            self.notice(str(error), error=True)
+
+    def _on_jira_status(self):
+        def ready(preview, error):
+            if error:
+                self.notice(error, error=True)
+            else:
+                self._send_to_jira(preview)
+        self.controller.jira_prepare_status(self.task_id, ready)
 
     def _on_jira_unlink(self):
         link = (self._detail or {}).get("jira")

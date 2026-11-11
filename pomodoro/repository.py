@@ -582,3 +582,13 @@ class Repository:
         """Solta a tarefa da issue; a tarefa e tudo o que é dela continuam."""
         with self.conn:
             self.conn.execute("DELETE FROM jira_links WHERE task_id = ?", (task_id,))
+
+    def log_jira_push(self, task_id, issue_key, kind, detail=""):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO jira_pushes(task_id, issue_key, kind, detail, sent_at) VALUES (?, ?, ?, ?, ?)",
+                (task_id, issue_key, kind, detail, self._ts()))
+
+    def list_jira_pushes(self, task_id):
+        return _rows(self.conn.execute(
+            "SELECT * FROM jira_pushes WHERE task_id = ? ORDER BY id DESC", (task_id,)))

@@ -1,6 +1,7 @@
 """Cliente mínimo da API REST v2 do Jira Cloud (e-mail + API token), só com a biblioteca padrão.
 
-Só lê: testar a conexão e buscar as issues do usuário. Qualquer falha vira JiraError com uma
+Lê (testar a conexão, buscar as issues) e escreve apenas o que o usuário confirmou na tela:
+comentar, mudar o status, atualizar título e previsão. Qualquer falha vira JiraError com uma
 mensagem em português. O transporte HTTP é injetável para os testes não usarem a rede.
 Rode em thread, nunca junto com o SQLite.
 """
@@ -95,6 +96,26 @@ def parse_issue(raw, base_url):
     }
 
 
+def _reason(text):
+    """Motivo que o Jira dá para recusar uma alteração (errorMessages / errors), ou ''."""
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    messages = [m for m in data.get("errorMessages") or [] if isinstance(m, str)]
+    messages += [f"{v}" for v in (data.get("errors") or {}).values() if isinstance(v, str)]
+    return "O Jira recusou: " + " ".join(messages) if messages else ""
+
+
+def _key_path(issue_key):
+    key = (issue_key or "").strip()
+    if not key or "/" in key or "?" in key:
+        raise JiraError("Chave de issue inválida.")
+    return urllib.parse.quote(key)
+
+
 class JiraClient:
     def __init__(self, base_url, email, token, transport=None, timeout=30.0):
         self.email = (email or "").strip()
@@ -107,7 +128,7 @@ class JiraClient:
     def base_url(self):
         return normalize_url(self._url)
 
-    def _request(self, method, path, payload=None):
+    def _request(self, method, path, payload=None, write=False):
         base = self.base_url
         if not self.email or not self._token:
             raise JiraError("Falta o e-mail ou o token do Jira nas configurações.")
@@ -124,6 +145,8 @@ class JiraClient:
         except Exception as error:
             log.warning("falha de rede no Jira: %s", error)
             raise JiraError("Não consegui falar com o Jira. Confira a internet e o endereço.") from error
+        if status == 403 and write:
+            raise JiraError("Sua conta não tem permissão para fazer isso nesta issue.")
         if status in (401, 403):
             raise JiraError("O Jira recusou o e-mail ou o token. Confira os dois (o token é o da API, não a senha).")
         if status == 404:
@@ -132,10 +155,14 @@ class JiraClient:
             wait = {k.lower(): v for k, v in (response_headers or {}).items()}.get("retry-after")
             raise JiraError("O Jira pediu para esperar um pouco" + (f" ({wait} s)." if wait else ".")
                             + " Tente de novo daqui a pouco.")
+        if status == 400 and write:
+            raise JiraError(_reason(text) or "O Jira não aceitou essa alteração.")
         if status == 400:
             raise JiraError("O Jira não entendeu a busca. Confira a JQL nas configurações.")
         if status >= 400:
             raise JiraError(f"O Jira respondeu com erro {status}.")
+        if status == 204 or not (text or "").strip():
+            return {}
         try:
             data = json.loads(text)
         except (json.JSONDecodeError, TypeError) as error:
@@ -165,3 +192,40 @@ class JiraClient:
             if not token or data.get("isLast"):
                 break
         return issues
+
+    # ---- escrita: só o que o usuário confirmou ---------------------------
+
+    def add_comment(self, issue_key, text):
+        """Acrescenta um comentário (não altera nada que já existe). Devolve o id do comentário."""
+        if not (text or "").strip():
+            raise JiraError("O comentário está vazio.")
+        data = self._request("POST", f"/rest/api/2/issue/{_key_path(issue_key)}/comment", {"body": text}, write=True)
+        return str(data.get("id") or "")
+
+    def transitions(self, issue_key):
+        """[{id, name, to_status, to_category}] das mudanças de status possíveis agora."""
+        data = self._request("GET", f"/rest/api/2/issue/{_key_path(issue_key)}/transitions")
+        result = []
+        for raw in data.get("transitions") or []:
+            target = raw.get("to") or {}
+            result.append({"id": str(raw.get("id")), "name": raw.get("name") or target.get("name") or "",
+                           "to_status": target.get("name") or "",
+                           "to_category": (target.get("statusCategory") or {}).get("key") or ""})
+        return result
+
+    def transition(self, issue_key, transition_id):
+        self._request("POST", f"/rest/api/2/issue/{_key_path(issue_key)}/transitions",
+                      {"transition": {"id": str(transition_id)}}, write=True)
+
+    def update_fields(self, issue_key, title=None, estimate_min=None):
+        """Atualiza só o que foi passado: título (summary) e/ou previsão original em minutos."""
+        fields = {}
+        if title is not None:
+            if not title.strip():
+                raise JiraError("O título não pode ficar vazio.")
+            fields["summary"] = title.strip()
+        if estimate_min is not None:
+            fields["timetracking"] = {"originalEstimate": f"{int(estimate_min)}m"}
+        if not fields:
+            return
+        self._request("PUT", f"/rest/api/2/issue/{_key_path(issue_key)}", {"fields": fields}, write=True)

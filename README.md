@@ -37,16 +37,25 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
   (ou exporte `ANTHROPIC_API_KEY`) e use "Testar conexão". Só títulos, grupos e tempos são enviados.
   O modelo padrão é `claude-opus-5-5`; dá para trocar por um menor na mesma tela.
 
-## Jira (Cloud, somente leitura)
+## Jira (Cloud)
 
 O Jira é um espelho: o app lê as suas issues e você organiza do seu jeito, com subtarefas, notas e previsão
-só locais. Nada é enviado ao Jira.
+só locais. **Nada é enviado ao Jira sem você pedir e confirmar numa janela que mostra exatamente o que vai.**
 
 1. Crie um token em id.atlassian.com → Segurança → Tokens de API.
 2. Em Configurações → Jira, informe o endereço (`https://empresa.atlassian.net`), o e-mail da conta e o token
    (ou exporte `JIRA_API_TOKEN`) e use "Testar conexão".
 3. "Importar minhas issues…" mostra o que vai entrar (por padrão, `assignee = currentUser()` em aberto, ou a sua JQL)
    e em qual grupo cada projeto cai. As tarefas ganham o selo `ABC-123`, e o editor mostra a issue.
+
+Para escrever no Jira, abra a tarefa no editor, no cartão "Jira":
+
+- **Enviar notas como comentário…**: entra como comentário novo; nada que já existe na issue é alterado.
+- **Atualizar título e previsão…**: mostra o que está no Jira × o que vai, e você marca o que enviar.
+- **Mudar status…**: lista as transições que o fluxo do seu projeto permite. Ao concluir uma tarefa ligada ao
+  Jira, o app também pergunta se quer mover a issue (dizer não não muda nada lá).
+
+Cada envio confirmado fica registrado ("Último envio…"). Se o Jira recusar, nada é registrado e o motivo aparece.
 
 Atualizar repete o mesmo caminho: o título só acompanha o Jira enquanto você não o renomear, e issues que saem da
 sua lista ficam marcadas, sem apagar a tarefa.

@@ -115,6 +115,19 @@ MIGRATIONS = [
         synced_at             TEXT NOT NULL
     );
     """,
+    # 4: registro do que o usuário enviou ao Jira (comentário, status, título/previsão), para ele
+    # saber o que já foi e quando. Só guarda envios confirmados por ele.
+    """
+    CREATE TABLE jira_pushes (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id   TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        issue_key TEXT NOT NULL,
+        kind      TEXT NOT NULL CHECK (kind IN ('comment', 'status', 'fields')),
+        detail    TEXT NOT NULL DEFAULT '',
+        sent_at   TEXT NOT NULL
+    );
+    CREATE INDEX idx_jira_pushes_task ON jira_pushes(task_id);
+    """,
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)

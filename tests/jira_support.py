@@ -24,7 +24,12 @@ def parsed_issue(**kwargs):
 class FakeJira:
     """Transporte falso: guarda as chamadas e responde com o que foi preparado."""
 
-    def __init__(self, pages=None, status=200, myself=None, error=None, headers=None):
+    def __init__(self, pages=None, status=200, myself=None, error=None, headers=None, write_status=None,
+                 write_body="{}", transitions=None):
+        self.write_status, self.write_body = write_status, write_body
+        self.transitions = transitions if transitions is not None else [
+            {"id": "11", "name": "Iniciar", "to": {"name": "In Progress", "statusCategory": {"key": "indeterminate"}}},
+            {"id": "31", "name": "Concluir", "to": {"name": "Done", "statusCategory": {"key": "done"}}}]
         self.pages = list(pages or [[]])
         self.status, self.error, self.headers = status, error, headers or {}
         self.myself = myself or {"displayName": "Fabiano"}
@@ -37,6 +42,12 @@ class FakeJira:
             raise self.error
         if self.status != 200:
             return self.status, "{}", self.headers
+        if url.endswith("/transitions") and method == "GET":
+            return 200, json.dumps({"transitions": self.transitions}), {}
+        if method in ("PUT", "POST") and "/issue/" in url:
+            if self.write_status:
+                return self.write_status, self.write_body, {}
+            return (201, '{"id": "900"}', {}) if url.endswith("/comment") else (204, "", {})
         if url.endswith("/myself"):
             return 200, json.dumps(self.myself), {}
         page = self.pages.pop(0) if self.pages else []

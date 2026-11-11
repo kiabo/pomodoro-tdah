@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 
 from tests_gtk._support import labels, make_controller, populate, require_gtk, walk
 
@@ -8,14 +9,16 @@ require_gtk()
 from gi.repository import Gtk  # noqa: E402
 
 from pomodoro.jira.client import JiraClient  # noqa: E402
+from pomodoro.ui.dialogs import jira_push as push_dialog  # noqa: E402
 from pomodoro.ui.dialogs.jira_import import JiraImportDialog  # noqa: E402
+from pomodoro.ui.main_window import MainWindow  # noqa: E402
 from pomodoro.ui.pages.settings_page import SettingsPage  # noqa: E402
 from pomodoro.ui.pages.task_editor import TaskEditorPage  # noqa: E402
 from pomodoro.ui.task_list import TaskList  # noqa: E402
 from tests.jira_support import FakeJira, raw_issue  # noqa: E402
 
 
-class JiraUiTest(unittest.TestCase):
+class JiraUiCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.controller = make_controller(
@@ -39,6 +42,9 @@ class JiraUiTest(unittest.TestCase):
         self.controller.jira_preview(lambda items, error: box.append((items, error)))
         return box[0]
 
+
+
+class JiraUiTest(JiraUiCase):
     def test_settings_tab_fields_and_test_button(self):
         page = SettingsPage(self.controller)
         self.assertEqual(page.jira_entries["jira_url"].get_text(), "https://x.atlassian.net")
@@ -97,6 +103,100 @@ class JiraUiTest(unittest.TestCase):
         self.addCleanup(editor.destroy)
         editor.load(data["report"]["id"])
         self.assertFalse(editor.jira_card.get_visible())
+
+
+class JiraPushUiTest(JiraUiCase):
+    def writes(self):
+        return [c for c in self.fake.calls if c["method"] in ("POST", "PUT") and "search" not in c["url"]]
+
+    def editor_for(self, task_id):
+        editor = TaskEditorPage(self.controller)
+        self.addCleanup(editor.destroy)
+        editor.load(task_id)
+        return editor
+
+    def test_comment_dialog_shows_exact_text_and_cancel_sends_nothing(self):
+        task_id = self.import_all()
+        self.repo.update_task(task_id, notes="Meu plano\n- passo")
+        editor = self.editor_for(task_id)
+        preview = self.controller.jira_prepare_comment(task_id)
+        dialog = push_dialog.JiraPushDialog(None, preview)
+        self.addCleanup(dialog.destroy)
+        buffer = dialog.text_view.get_buffer()
+        self.assertEqual(buffer.get_text(*buffer.get_bounds(), False), "Meu plano\n- passo")
+        self.assertFalse(preview["confirmed"])
+        with mock.patch.object(push_dialog, "ask_push", return_value=None):
+            editor._on_jira_comment()
+        self.assertEqual(self.writes(), [])
+
+    def test_confirmed_comment_goes_out_and_shows_notice(self):
+        task_id = self.import_all()
+        self.repo.update_task(task_id, notes="Meu plano")
+        editor = self.editor_for(task_id)
+
+        def confirm(_parent, preview):
+            preview["confirmed"] = True
+            return preview
+
+        with mock.patch.object(push_dialog, "ask_push", side_effect=confirm):
+            editor._on_jira_comment()
+        self.assertEqual([w["body"] for w in self.writes()], [{"body": "Meu plano"}])
+        self.assertEqual(editor.notice_label.get_text(), "Enviado para ABC-1.")
+        self.assertIn("comentário", editor.jira_last_push.get_text())
+
+    def test_comment_without_notes_shows_error_not_dialog(self):
+        editor = self.editor_for(self.import_all())
+        with mock.patch.object(push_dialog, "ask_push") as ask:
+            editor._on_jira_comment()
+        ask.assert_not_called()
+        self.assertIn("não tem notas", editor.notice_label.get_text())
+
+    def test_fields_dialog_unchecking_skips_a_field(self):
+        task_id = self.import_all()
+        self.repo.update_task(task_id, title="Meu título", estimate_min=45)
+        preview = self.controller.jira_prepare_fields(task_id)
+        dialog = push_dialog.JiraPushDialog(None, preview)
+        self.addCleanup(dialog.destroy)
+        self.assertTrue(dialog.send_button.get_sensitive())
+        dialog.checks[0][0].set_active(False)
+        dialog.checks[1][0].set_active(False)
+        self.assertFalse(dialog.send_button.get_sensitive())
+        dialog.checks[1][0].set_active(True)
+        confirmed = dialog.confirm()
+        self.assertEqual([c["selected"] for c in confirmed["changes"]], [False, True])
+        self.assertTrue(confirmed["confirmed"])
+
+    def test_status_dialog_needs_a_choice(self):
+        task_id = self.import_all()
+        box = []
+        self.controller.jira_prepare_status(task_id, lambda preview, error: box.append(preview))
+        dialog = push_dialog.JiraPushDialog(None, box[0])
+        self.addCleanup(dialog.destroy)
+        self.assertFalse(dialog.send_button.get_sensitive())
+        dialog.radios[1][0].set_active(True)
+        self.assertTrue(dialog.send_button.get_sensitive())
+        self.assertEqual(dialog.confirm()["transition_id"], dialog.radios[1][1]["id"])
+
+    def test_offer_after_completing_asks_and_declining_sends_nothing(self):
+        task_id = self.import_all()
+        window = MainWindow(self.controller)
+        self.addCleanup(window.destroy)
+        with mock.patch.object(MainWindow, "get_visible", return_value=True), \
+                mock.patch("pomodoro.ui.main_window.dialogs.confirm", return_value=False) as ask:
+            window.offer_jira_status(task_id)
+        self.assertIn("ABC-1", ask.call_args.args[1])
+        self.assertEqual(self.writes(), [])
+
+    def test_offer_accepted_opens_status_dialog(self):
+        task_id = self.import_all()
+        window = MainWindow(self.controller)
+        self.addCleanup(window.destroy)
+        with mock.patch.object(MainWindow, "get_visible", return_value=True), \
+                mock.patch("pomodoro.ui.main_window.dialogs.confirm", return_value=True), \
+                mock.patch.object(push_dialog, "ask_push", return_value=None) as ask:
+            window.offer_jira_status(task_id)
+        self.assertEqual(ask.call_args.args[1]["kind"], "status")
+        self.assertEqual(self.writes(), [])
 
 
 if __name__ == "__main__":
