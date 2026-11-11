@@ -173,6 +173,7 @@ class TaskEditorPage(Gtk.Box):
         self.editor.pack_start(self._build_title_row(), False, True, 0)
         self.editor.pack_start(self._build_notice(), False, True, 0)
         self.editor.pack_start(self._build_fields_row(), False, True, 0)
+        self.editor.pack_start(self._build_jira_card(), False, True, 0)
         self.editor.pack_start(self._build_time_cards(), False, True, 0)
         self.editor.pack_start(self._build_subtasks(), False, True, 0)
         self.editor.pack_start(self._build_notes_history(), False, True, 0)
@@ -218,6 +219,38 @@ class TaskEditorPage(Gtk.Box):
         return flow(field("Grupo", self.group_select), field("Quando", self.date_picker),
                     field("Repetir", self.repeat_select), field("Energia necessária", self.energy),
                     max_per_line=4)
+
+    def _build_jira_card(self):
+        """Dados da issue do Jira ligada à tarefa. Só leitura: nada daqui é enviado ao Jira."""
+        self.jira_key_label = label("", "bold", "text-primary")
+        self.jira_status_label = label("", "small", "muted")
+        self.jira_open = button("Abrir no Jira", "btn-link", on_click=self._on_jira_open)
+        self.jira_unlink = button("Desvincular", "btn-link", on_click=self._on_jira_unlink)
+        head = hbox(self.jira_key_label, expand(self.jira_status_label), self.jira_open, self.jira_unlink)
+        self.jira_title_label = label("", "small", wrap=True)
+        self.jira_estimate_label = label("", "small", "muted")
+        self.jira_use_estimate = button("Usar a previsão do Jira", "btn-link", on_click=self._on_jira_use_estimate)
+        self.jira_warning = label("", "small", "text-amber", wrap=True)
+        self.jira_description = Gtk.TextView()
+        style(self.jira_description, "notes-view")
+        self.jira_description.set_editable(False)
+        self.jira_description.set_cursor_visible(False)
+        self.jira_description.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.jira_description_scroll = Gtk.ScrolledWindow()
+        self.jira_description_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.jira_description_scroll.set_min_content_height(40)
+        self.jira_description_scroll.set_max_content_height(110)
+        self.jira_description_scroll.set_propagate_natural_height(True)
+        self.jira_description_scroll.add(self.jira_description)
+        self.jira_card = vbox(
+            label("JIRA · SOMENTE LEITURA", "eyebrow"), head, self.jira_title_label, self.jira_warning,
+            hbox(self.jira_estimate_label, self.jira_use_estimate, spacing=10), self.jira_description_scroll,
+            label("Seus passos, notas e previsão ficam só aqui. Nada é enviado ao Jira.", "caption", "faint"),
+            spacing=8, classes=("card-soft",))
+        self.jira_card.show_all()               # os filhos já ficam visíveis; só o cartão aparece sob demanda
+        self.jira_card.set_no_show_all(True)
+        self.jira_card.hide()
+        return self.jira_card
 
     def _build_time_cards(self):
         self.stepper = TimeStepper(0, step=5)
@@ -316,6 +349,46 @@ class TaskEditorPage(Gtk.Box):
             self._loading = False
         self._fill_derived(detail)
         self._fill_subtasks(detail)
+        self._fill_jira(detail)
+
+    def _fill_jira(self, detail):
+        link = detail.get("jira")
+        self.jira_card.set_visible(bool(link))
+        if not link:
+            return
+        task = detail["task"]
+        self.jira_key_label.set_text(link["issue_key"])
+        self.jira_status_label.set_text(link["remote_status"] and f"status no Jira: {link['remote_status']}")
+        self.jira_open.set_sensitive(bool(link["url"]))
+        differs = link["remote_title"] and link["remote_title"] != task["title"]
+        self.jira_title_label.set_text(f"Título no Jira: {link['remote_title']}" if differs else "")
+        self.jira_title_label.set_visible(bool(differs))
+        self.jira_warning.set_text("Esta issue não está mais na sua lista do Jira (fechada ou reatribuída). "
+                                   "A tarefa continua aqui." if link["missing"] else "")
+        self.jira_warning.set_visible(bool(link["missing"]))
+        estimate = link["remote_estimate_min"]
+        self.jira_estimate_label.set_text(f"Previsão no Jira: {format_minutes(estimate)}" if estimate
+                                          else "Sem previsão no Jira")
+        self.jira_use_estimate.set_visible(bool(estimate) and estimate != task["estimate_min"])
+        self.jira_description.get_buffer().set_text(link["remote_description"] or "")
+        self.jira_description_scroll.set_visible(bool(link["remote_description"]))
+
+    def _on_jira_open(self):
+        link = (self._detail or {}).get("jira")
+        if link and link["url"]:
+            Gtk.show_uri_on_window(self.get_toplevel(), link["url"], Gdk.CURRENT_TIME)
+
+    def _on_jira_use_estimate(self):
+        link = (self._detail or {}).get("jira")
+        if link and link["remote_estimate_min"]:
+            self._try(lambda: self.controller.update_task(self.task_id, estimate_min=link["remote_estimate_min"]),
+                      full=True)
+
+    def _on_jira_unlink(self):
+        link = (self._detail or {}).get("jira")
+        if link and dialogs.confirm(self.get_toplevel(), f"Desvincular de {link['issue_key']}?",
+                                    "A tarefa e seus passos continuam aqui. Nada muda no Jira.", yes="Desvincular"):
+            self.controller.jira_unlink(self.task_id)
 
     def _set_repeat_options(self, day, rule):
         options = recurrence.options_for(day)

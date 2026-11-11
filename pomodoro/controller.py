@@ -18,6 +18,8 @@ from pathlib import Path
 from .ai import analysis as ai_analysis, summary as ai_summary
 from .ai.claude_client import AIUnavailable, ClaudeClient
 from .ai.estimator import Estimator
+from .jira import importer as jira_importer
+from .jira.client import JiraClient, JiraError
 from . import db, export, groups as groups_model, planning, settings as settings_store, today as today_model
 from .repository import Repository
 from .timer import PHASE_LABELS, Phase, PomodoroTimer
@@ -28,7 +30,7 @@ log = logging.getLogger(__name__)
 
 class Controller:
     def __init__(self, data_dir=None, settings=None, scheduler=None, notify=None, play_sound=None,
-                 now=datetime.now, today=date.today, run_async=None, claude_factory=None):
+                 now=datetime.now, today=date.today, run_async=None, claude_factory=None, jira_factory=None):
         self.data_dir = Path(data_dir or settings_store.data_dir())
         self.settings = settings if settings is not None else settings_store.load_settings(self.data_dir)
         self.conn = db.open_database(self.data_dir)
@@ -43,6 +45,7 @@ class Controller:
         self.estimator = Estimator()
         self._run_async = run_async or _run_in_thread
         self._claude_factory = claude_factory or ClaudeClient
+        self._jira_factory = jira_factory or JiraClient
         self.last_alert = None          # dados do último alerta de hiperfoco (para o modo compacto)
         self.last_pomodoro = None       # dados do último pomodoro concluído (para "como foi?")
 
@@ -401,6 +404,7 @@ class Controller:
             "estimate_sum": repo.subtasks_estimate_sum(task_id),
             "sessions": sessions,
             "distractions": repo.list_distractions(task_id=task_id),
+            "jira": repo.jira_link(task_id),
         }
 
     def update_task(self, task_id, **fields):
@@ -573,6 +577,69 @@ class Controller:
 
     def test_ai_connection(self, done):
         self._cloud_call(lambda client: client.test_connection(), done)
+
+    # ---- Jira (somente leitura) ---------------------------------------------
+
+    def jira_configured(self):
+        s = self.settings
+        return bool(s["jira_url"].strip() and s["jira_email"].strip() and settings_store.jira_token(s))
+
+    def _jira(self):
+        s = self.settings
+        return self._jira_factory(s["jira_url"], s["jira_email"], settings_store.jira_token(s))
+
+    def _jira_call(self, work, done):
+        """Roda `work(client)` fora da tela. done(resultado, erro) volta no laço principal; nunca usa o SQLite."""
+        if not self.jira_configured():
+            done(None, "Informe o endereço, o e-mail e o token do Jira em Configurações → Jira.")
+            return
+        client = self._jira()
+
+        def job():
+            try:
+                return work(client), None
+            except JiraError as error:
+                return None, str(error)
+            except Exception:
+                log.exception("erro inesperado no Jira")
+                return None, "Não foi possível falar com o Jira agora."
+        self._run_async(job, lambda outcome: done(*outcome))
+
+    def test_jira_connection(self, done):
+        self._jira_call(lambda client: client.test_connection(), done)
+
+    def jira_preview(self, done):
+        """Busca as minhas issues e compara com o que já existe. done(itens, erro). Não grava nada."""
+        jql = self.settings["jira_jql"]
+
+        def fetched(issues, error):
+            if error:
+                done(None, error)
+                return
+            items = jira_importer.plan_import(self.repo, issues, self.settings["jira_project_groups"])
+            done(items, None)
+        self._jira_call(lambda client: client.search(jql), fetched)
+
+    def jira_import(self, items, group_choices=None):
+        """Grava os itens marcados da pré-visualização. group_choices: {chave do projeto: id do grupo}."""
+        choices = {k: v for k, v in (group_choices or {}).items() if v}
+        for item in items:
+            if item.action == jira_importer.NEW and choices.get(item.issue["project_key"]):
+                item.group_id = choices[item.issue["project_key"]]
+        result = jira_importer.apply_import(self.repo, items, all_keys=[i.issue["key"] for i in items])
+        if choices:
+            self.apply_settings({"jira_project_groups": {**self.settings["jira_project_groups"], **choices}})
+        self.tracker.invalidate()
+        self._changed()
+        return result
+
+    def jira_link(self, task_id):
+        return self.repo.jira_link(task_id)
+
+    def jira_unlink(self, task_id):
+        """Solta a tarefa da issue. Não mexe no Jira."""
+        self.repo.remove_jira_link(task_id)
+        self._changed()
 
     # ---- configurações --------------------------------------------------
 

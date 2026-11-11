@@ -96,6 +96,25 @@ MIGRATIONS = [
     """,
     # 2: marca a sessão que terminou um pomodoro/intervalo até o fim (para contar pomodoros).
     "ALTER TABLE sessions ADD COLUMN completed_phase INTEGER NOT NULL DEFAULT 0;",
+    # 3: vínculo de uma tarefa com uma issue do Jira. O que vem do Jira fica aqui (somente leitura);
+    # título, notas e previsão da tarefa continuam sendo do usuário.
+    """
+    CREATE TABLE jira_links (
+        task_id               TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+        issue_key             TEXT NOT NULL UNIQUE,
+        issue_id              TEXT NOT NULL DEFAULT '',
+        project_key           TEXT NOT NULL DEFAULT '',
+        url                   TEXT NOT NULL DEFAULT '',
+        remote_title          TEXT NOT NULL DEFAULT '',
+        remote_description    TEXT NOT NULL DEFAULT '',
+        remote_status         TEXT NOT NULL DEFAULT '',
+        remote_status_category TEXT NOT NULL DEFAULT '',
+        remote_estimate_min   INTEGER,
+        remote_updated        TEXT NOT NULL DEFAULT '',
+        missing               INTEGER NOT NULL DEFAULT 0,
+        synced_at             TEXT NOT NULL
+    );
+    """,
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)

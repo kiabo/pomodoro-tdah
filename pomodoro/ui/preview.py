@@ -128,6 +128,18 @@ def fill_sample_data(controller):
     controller._emit("data")
 
 
+def link_sample_jira(controller):
+    """Liga a tarefa do relatório a uma issue de exemplo (para ver o selo e o cartão do Jira)."""
+    report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
+    controller.repo.save_jira_link(
+        report["id"], "FIN-142", project_key="FIN", url="https://empresa.atlassian.net/browse/FIN-142",
+        remote_title="Relatório mensal de custos", remote_status="Em andamento",
+        remote_description="Consolidar os custos do mês e enviar ao financeiro até sexta.",
+        remote_estimate_min=120, remote_updated="2026-11-10T10:00:00.000-0300")
+    controller._changed()
+    return report
+
+
 def build_preview():
     data_dir = tempfile.mkdtemp(prefix="pomodoro-preview-")
     settings = settings_store.sanitize({"free_minutes_per_day": 360})
@@ -140,7 +152,7 @@ def build_preview():
 COMPACT_SCREENS = ("compact-focus", "compact-expanded", "compact-break", "compact-mini", "compact-alert",
                    "compact-rating")
 SCREENS = ("today", "editor", "new-task", "groups", "analysis", "plan", "settings", "settings-compact", "settings-sound",
-           "settings-ai") + COMPACT_SCREENS
+           "settings-ai", "settings-jira", "editor-jira") + COMPACT_SCREENS
 
 
 def _pump():
@@ -208,8 +220,10 @@ def render_png(path, width=1280, height=860, screen="today"):
         offscreen.add(content)
         width, height = 720, None
     else:
-        if screen == "editor":
+        if screen in ("editor", "editor-jira"):
             report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
+            if screen == "editor-jira":
+                link_sample_jira(controller)
             window.open_task_editor(report["id"])
         elif screen in ("groups", "analysis", "plan"):
             window.show_page(screen)
@@ -243,8 +257,10 @@ def main():
     controller, window = build_preview()
     window.connect("destroy", Gtk.main_quit)
     window.present_today()
-    if args.screen == "editor":
+    if args.screen in ("editor", "editor-jira"):
         report = next(t for t in controller.repo.list_tasks() if t["title"] == "Escrever relatório mensal")
+        if args.screen == "editor-jira":
+            link_sample_jira(controller)
         window.open_task_editor(report["id"])
     elif args.screen in ("groups", "analysis", "plan"):
         window.show_page(args.screen)

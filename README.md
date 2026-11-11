@@ -37,6 +37,20 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
   (ou exporte `ANTHROPIC_API_KEY`) e use "Testar conexão". Só títulos, grupos e tempos são enviados.
   O modelo padrão é `claude-opus-5-5`; dá para trocar por um menor na mesma tela.
 
+## Jira (Cloud, somente leitura)
+
+O Jira é um espelho: o app lê as suas issues e você organiza do seu jeito, com subtarefas, notas e previsão
+só locais. Nada é enviado ao Jira.
+
+1. Crie um token em id.atlassian.com → Segurança → Tokens de API.
+2. Em Configurações → Jira, informe o endereço (`https://empresa.atlassian.net`), o e-mail da conta e o token
+   (ou exporte `JIRA_API_TOKEN`) e use "Testar conexão".
+3. "Importar minhas issues…" mostra o que vai entrar (por padrão, `assignee = currentUser()` em aberto, ou a sua JQL)
+   e em qual grupo cada projeto cai. As tarefas ganham o selo `ABC-123`, e o editor mostra a issue.
+
+Atualizar repete o mesmo caminho: o título só acompanha o Jira enquanto você não o renomear, e issues que saem da
+sua lista ficam marcadas, sem apagar a tarefa.
+
 ## Comandos
 
 | O quê | Como |
@@ -46,7 +60,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
 | Gerar o instalador `.deb` | `scripts/build-deb.sh` (saída em `dist/`) |
 | Rodar só na bandeja | `./run.sh --hidden` |
 | Modo compacto | botão "Modo compacto" na janela, ou pelo ícone da bandeja. Arraste para mover; duplo clique vira pílula; clique direito: menu |
-| Ver as telas com dados de exemplo | `scripts/preview.sh [--screen editor\|new-task\|groups\|analysis\|settings[-compact\|-sound\|-ai]\|compact-focus\|-expanded\|-break\|-mini\|-alert\|-rating] [--png arquivo.png]` |
+| Ver as telas com dados de exemplo | `scripts/preview.sh [--screen editor\|editor-jira\|new-task\|groups\|analysis\|settings[-compact\|-sound\|-ai\|-jira]\|compact-focus\|-expanded\|-break\|-mini\|-alert\|-rating] [--png arquivo.png]` |
 | Galeria de componentes | `scripts/gallery.sh` (ou `--png arquivo.png`) |
 | Atalhos | `Ctrl K` busca · `Ctrl N` nova tarefa (modal) · `Ctrl Enter` cria no modal · duplo clique numa tarefa abre o editor · clique direito: menu |
 

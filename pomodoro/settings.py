@@ -57,6 +57,12 @@ DEFAULT_SETTINGS = {
     "ai_cloud_enabled": False,         # textos/subtarefas via Claude API (opcional)
     "ai_model": "claude-opus-5-5",     # modelo usado na API do Claude
     "anthropic_api_key": "",           # se vazio, usa a variável ANTHROPIC_API_KEY
+    # Jira (somente leitura por padrão; nada é enviado sem o usuário pedir)
+    "jira_url": "",                    # https://empresa.atlassian.net
+    "jira_email": "",
+    "jira_token": "",                  # token da API; se vazio, usa a variável JIRA_API_TOKEN
+    "jira_jql": "",                    # vazio = minhas issues em aberto
+    "jira_project_groups": {},         # {chave do projeto: id do grupo} lembrado entre importações
 }
 
 _RANGES = {
@@ -86,6 +92,8 @@ def _valid(key, value):
         return isinstance(value, list) and all(v in COMPACT_FIELDS for v in value)
     if key == "compact_idle_opacity":
         return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.2 <= value <= 1.0
+    if key == "jira_project_groups":
+        return isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
     if key == "ai_model":
         return isinstance(value, str) and bool(value.strip())
     if isinstance(default, bool):
@@ -100,13 +108,19 @@ def _valid(key, value):
     return False
 
 
+def _copy(value):
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return dict(value) if isinstance(value, dict) else value
+
+
 def sanitize(data):
     """Mescla data sobre os padrões, descartando chaves desconhecidas e valores inválidos."""
-    settings = {key: (list(v) if isinstance(v, list) else v) for key, v in DEFAULT_SETTINGS.items()}
+    settings = {key: _copy(v) for key, v in DEFAULT_SETTINGS.items()}
     if isinstance(data, dict):
         for key, value in data.items():
             if key in DEFAULT_SETTINGS and _valid(key, value):
-                settings[key] = list(value) if isinstance(value, (list, tuple)) else value
+                settings[key] = _copy(value)
     return settings
 
 
@@ -132,3 +146,7 @@ def save_settings(settings, directory=None):
 
 def api_key(settings):
     return settings.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def jira_token(settings):
+    return settings.get("jira_token") or os.environ.get("JIRA_API_TOKEN", "")

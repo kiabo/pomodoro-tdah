@@ -30,6 +30,7 @@ class TaskView:
     real_seconds: int
     postponed_count: int = 0
     subtasks: list = field(default_factory=list)
+    jira_key: str | None = None     # chave da issue do Jira ligada à tarefa, se houver
 
     @property
     def done(self):
@@ -89,6 +90,7 @@ def build_today(repo, day, query="", group_id=None, only_task_id=None):
     groups = repo.list_groups()
     subtasks = repo.subtasks_by_task(t["id"] for t in tasks)
     real_by_task, real_by_subtask = repo.real_seconds_map()
+    jira_keys = repo.jira_keys()
 
     views = []
     for row in tasks:
@@ -102,6 +104,7 @@ def build_today(repo, day, query="", group_id=None, only_task_id=None):
         views.append(TaskView(
             row["id"], row["group_id"], row["title"], row["status"], estimate,
             row["estimate_min"], real_by_task.get(row["id"], 0), row["postponed_count"], subs,
+            jira_keys.get(row["id"]),
         ))
 
     needle = (query or "").strip().casefold()
@@ -113,7 +116,8 @@ def build_today(repo, day, query="", group_id=None, only_task_id=None):
             return False
         if not needle:
             return True
-        return needle in task.title.casefold() or any(needle in s.title.casefold() for s in task.subtasks)
+        return (needle in task.title.casefold() or any(needle in s.title.casefold() for s in task.subtasks)
+                or needle in (task.jira_key or "").casefold())
 
     group_views = []
     for group in groups:

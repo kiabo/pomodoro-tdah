@@ -16,7 +16,7 @@ from ...ai.claude_client import MODELS
 from ...settings import COMPACT_FIELDS
 
 TABS = [("focus", "Pomodoro e foco"), ("compact", "Modo compacto"), ("sound", "Sons e notificações"),
-        ("ai", "IA e dados")]
+        ("jira", "Jira"), ("ai", "IA e dados")]
 END_SOUNDS = [("complete", "Sino suave"), ("message", "Mensagem"), ("bell", "Sino"),
               ("alarm-clock-elapsed", "Despertador"), ("", "Mudo")]
 THRESHOLDS = [(125, "125%"), (150, "150%"), (200, "200%")]
@@ -94,6 +94,7 @@ class SettingsPage(Gtk.Box):
         self.stack.add_named(self._wrap(self._build_focus_tab()), "focus")
         self.stack.add_named(self._wrap(self._build_compact_tab()), "compact")
         self.stack.add_named(self._wrap(self._build_sound_tab()), "sound")
+        self.stack.add_named(self._wrap(self._build_jira_tab()), "jira")
         self.stack.add_named(self._wrap(self._build_ai_tab()), "ai")
         self.stack.show_all()
         self.stack.set_visible_child_name("focus")
@@ -291,6 +292,87 @@ class SettingsPage(Gtk.Box):
             width=460,
         )
         return flow(card, max_per_line=1, homogeneous=False, halign=Gtk.Align.START)
+
+    # ---- aba: Jira --------------------------------------------------------------
+
+    def _jira_entry(self, key, placeholder, secret=False, width=28):
+        entry = style(Gtk.Entry(), "input")
+        entry.set_placeholder_text(placeholder)
+        entry.set_text(self.settings[key])
+        entry.set_width_chars(width)
+        entry.set_visibility(not secret)
+        entry.connect("activate", lambda *_: self._commit_jira(key, entry))
+        entry.connect("focus-out-event", lambda *_: self._commit_jira(key, entry) or False)
+        return entry
+
+    def _commit_jira(self, key, entry):
+        text = entry.get_text().strip()
+        if text != self.settings[key]:
+            self._apply({key: text})
+
+    def _build_jira_tab(self):
+        self.jira_entries = {
+            "jira_url": self._jira_entry("jira_url", "https://empresa.atlassian.net"),
+            "jira_email": self._jira_entry("jira_email", "voce@empresa.com"),
+            "jira_token": self._jira_entry("jira_token", "token da API", secret=True),
+            "jira_jql": self._jira_entry("jira_jql", "padrão: minhas issues em aberto", width=34),
+        }
+        self.jira_status = label("", "small", "muted", wrap=True)
+        self.jira_test_button = button("Testar conexão", "btn-secondary", on_click=self._on_jira_test)
+        self.jira_import_button = button("Importar minhas issues…", "btn-secondary", on_click=self._on_jira_import)
+        card = section(
+            "Jira",
+            label("O Jira é só um espelho: o app lê as suas issues e você organiza do seu jeito. "
+                  "Nada é enviado ao Jira sem você pedir.", "text2", wrap=True),
+            setting_row("Endereço", None, self.jira_entries["jira_url"]),
+            setting_row("E-mail da conta", None, self.jira_entries["jira_email"]),
+            setting_row("Token da API", "Crie em id.atlassian.com → Segurança → Tokens de API. "
+                        "Fica só neste computador. Se vazio, usa JIRA_API_TOKEN.", self.jira_entries["jira_token"]),
+            setting_row("Busca (JQL)", "Vazio traz só as suas issues em aberto.", self.jira_entries["jira_jql"]),
+            hbox(self.jira_test_button, self.jira_import_button, spacing=10),
+            self.jira_status,
+            width=560,
+        )
+        column = vbox(card, spacing=16)
+        column.set_halign(Gtk.Align.START)
+        column.set_valign(Gtk.Align.START)
+        return column
+
+    def _commit_jira_all(self):
+        for key, entry in self.jira_entries.items():
+            self._commit_jira(key, entry)
+
+    def _jira_busy(self, busy, text=""):
+        self.jira_test_button.set_sensitive(not busy)
+        self.jira_import_button.set_sensitive(not busy)
+        self.jira_status.set_text(text)
+
+    def _on_jira_test(self):
+        self._commit_jira_all()
+        self._jira_busy(True, "Testando…")
+
+        def finished(name, error):
+            self._jira_busy(False, f"✓ Conectado como {name}." if not error else error)
+
+        self.controller.test_jira_connection(finished)
+
+    def _on_jira_import(self):
+        self._commit_jira_all()
+        self._jira_busy(True, "Buscando suas issues…")
+
+        def finished(items, error):
+            self._jira_busy(False, error or "")
+            if error:
+                return
+            from ..dialogs.jira_import import show_import
+            result = show_import(self.get_toplevel(), self.controller, items)
+            if result is not None:
+                text = f"{result['created']} importadas, {result['updated']} atualizadas."
+                if result["skipped"]:
+                    text += " Não entraram: " + "; ".join(f"{k} ({why})" for k, why in result["skipped"]) + "."
+                self.jira_status.set_text(text)
+
+        self.controller.jira_preview(finished)
 
     # ---- aba: IA e dados --------------------------------------------------------
 
