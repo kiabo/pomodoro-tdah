@@ -12,6 +12,12 @@ JIRA_GROUP_COLOR = "#2684FF"
 NEW, UPDATE, SAME = "new", "update", "same"
 
 
+class Plan(list):
+    """Lista de ImportItem. complete=False quando a busca parou no limite e faltaram issues."""
+
+    complete = True
+
+
 @dataclass
 class ImportItem:
     issue: dict
@@ -39,8 +45,11 @@ def _usable_group(repo, group_id):
 def plan_import(repo, issues, project_groups=None):
     """Compara as issues com o que já existe e devolve a lista de ImportItem (nada é gravado)."""
     project_groups = project_groups or {}
-    items = []
+    items, seen = [], set()
     for issue in issues:
+        if issue["key"] in seen:            # a mesma issue pode vir repetida entre páginas da busca
+            continue
+        seen.add(issue["key"])
         link = repo.jira_link_by_key(issue["key"])
         if link is None:
             group_id = _usable_group(repo, project_groups.get(issue["project_key"]))
@@ -50,6 +59,14 @@ def plan_import(repo, issues, project_groups=None):
         changes = []
         if issue["title"] != link["remote_title"] and task and task["title"] == link["remote_title"]:
             changes.append("título")
+        conflicts = _conflicts(task, link, issue)
+        if "title" in conflicts:
+            changes.append("título mudou no Jira (o seu foi mantido)")
+        if "estimate" in conflicts:
+            changes.append("previsão mudou no Jira (a sua foi mantida)")
+        if ",".join(sorted(conflicts)) != ",".join(sorted(filter(None, (link["conflicts"] or "").split(",")))):
+            if not conflicts or conflicts < set(filter(None, (link["conflicts"] or "").split(","))):
+                changes.append("divergência resolvida")
         if issue["status"] != link["remote_status"]:
             changes.append(f"status no Jira: {issue['status']}")
         if issue["estimate_min"] != link["remote_estimate_min"]:
@@ -62,6 +79,26 @@ def plan_import(repo, issues, project_groups=None):
                                 group_id=task["group_id"] if task else None, changes=changes,
                                 selected=bool(changes)))
     return items
+
+
+def _conflicts(task, link, issue):
+    """Campos que o Jira mudou e o usuário também tinha mudado aqui: {"title", "estimate"} ⊆ resultado.
+
+    Nesses casos o valor do usuário é mantido; o campo só fica anotado para ele decidir.
+    """
+    found = set(filter(None, (link["conflicts"] or "").split(",")))
+    if task is not None:
+        if issue["title"] != link["remote_title"] and task["title"] != link["remote_title"]:
+            found.add("title")
+        local_estimate = task["estimate_min"]
+        if (issue["estimate_min"] != link["remote_estimate_min"] and local_estimate is not None
+                and local_estimate != link["remote_estimate_min"]):
+            found.add("estimate")
+        if task["title"] == issue["title"]:
+            found.discard("title")                       # já estão iguais: não há o que decidir
+        if local_estimate == issue["estimate_min"]:
+            found.discard("estimate")
+    return found
 
 
 def ensure_jira_group(repo):
@@ -101,9 +138,11 @@ def apply_import(repo, items, all_keys=None):
             task = repo.get_task(link["task_id"]) if link else None
             if task is None:
                 continue
+            conflicts = _conflicts(task, link, issue)
             if task["title"] == link["remote_title"] and issue["title"] != link["remote_title"]:
                 repo.update_task(task["id"], title=issue["title"])
-            repo.save_jira_link(task["id"], issue["key"], **_link_fields(issue))
+            repo.save_jira_link(task["id"], issue["key"], conflicts=",".join(sorted(conflicts)),
+                                **_link_fields(issue))
             result["updated"] += 1
     if all_keys is not None:
         repo.mark_jira_missing(all_keys)

@@ -233,6 +233,7 @@ class TaskEditorPage(Gtk.Box):
         self.jira_estimate_label = label("", "small", "muted")
         self.jira_use_estimate = button("Usar a previsão do Jira", "btn-link", on_click=self._on_jira_use_estimate)
         self.jira_warning = label("", "small", "text-amber", wrap=True)
+        self.jira_conflicts_box = vbox(spacing=6)
         self.jira_last_push = label("", "caption", "muted", wrap=True)
         self.jira_send_comment = button("Enviar notas como comentário…", "btn-secondary", on_click=self._on_jira_comment)
         self.jira_send_fields = button("Atualizar título e previsão…", "btn-secondary", on_click=self._on_jira_fields)
@@ -257,6 +258,7 @@ class TaskEditorPage(Gtk.Box):
         self.jira_description_scroll.add(self.jira_description)
         self.jira_card = vbox(
             label("JIRA · NADA É ENVIADO SEM VOCÊ CONFIRMAR", "eyebrow"), head, self.jira_title_label, self.jira_warning,
+            self.jira_conflicts_box,
             hbox(self.jira_estimate_label, self.jira_use_estimate, spacing=10), self.jira_description_scroll,
             self.jira_actions, self.jira_logged_label, self.jira_last_push,
             label("Seus passos, notas e previsão ficam só aqui, a não ser que você envie.", "caption", "faint"),
@@ -386,6 +388,7 @@ class TaskEditorPage(Gtk.Box):
         self.jira_use_estimate.set_visible(bool(estimate) and estimate != task["estimate_min"])
         self.jira_description.get_buffer().set_text(link["remote_description"] or "")
         self.jira_description_scroll.set_visible(bool(link["remote_description"]))
+        self._fill_jira_conflicts(link, task)
         logged = detail.get("jira_logged_seconds", 0)
         self.jira_logged_label.set_text(f"Tempo já lançado no Jira: {format_real(logged)} de "
                                         f"{format_real(detail['real_seconds'])} cronometrados." if logged else "")
@@ -394,6 +397,28 @@ class TaskEditorPage(Gtk.Box):
         self.jira_last_push.set_text(
             f"Último envio: {pushes[0]['detail']} · {pushes[0]['sent_at'].replace('T', ' ')[:16]}" if pushes else "")
         self.jira_last_push.set_visible(bool(pushes))
+
+    def _fill_jira_conflicts(self, link, task):
+        """Divergências: o Jira mudou o campo depois de você ter mudado o seu aqui. O seu foi mantido."""
+        for child in self.jira_conflicts_box.get_children():
+            self.jira_conflicts_box.remove(child)
+            child.destroy()
+        names = {"title": ("título", link["remote_title"]),
+                 "estimate": ("previsão", format_minutes(link["remote_estimate_min"]) if link["remote_estimate_min"]
+                              else "sem previsão")}
+        for field in filter(None, (link["conflicts"] or "").split(",")):
+            if field not in names:
+                continue
+            name, remote = names[field]
+            text = label(f"O {name} mudou no Jira para “{remote}”, e você também tinha mudado aqui. "
+                         f"O seu foi mantido.", "small", "text-amber", wrap=True)
+            use = button("Usar o do Jira", "btn-link", on_click=lambda f=field: self._resolve_conflict(f, True))
+            keep = button("Manter o meu", "btn-link", on_click=lambda f=field: self._resolve_conflict(f, False))
+            self.jira_conflicts_box.pack_start(vbox(text, hbox(use, keep, spacing=10), spacing=2), False, True, 0)
+        self.jira_conflicts_box.show_all()
+
+    def _resolve_conflict(self, field, use_jira):
+        self._try(lambda: self.controller.jira_resolve_conflict(self.task_id, field, use_jira), full=True)
 
     def _on_jira_open(self):
         link = (self._detail or {}).get("jira")

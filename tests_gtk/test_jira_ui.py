@@ -11,6 +11,7 @@ from gi.repository import Gtk  # noqa: E402
 from pomodoro.jira.client import JiraClient  # noqa: E402
 from pomodoro.ui.dialogs import jira_push as push_dialog  # noqa: E402
 from pomodoro.ui.dialogs.jira_import import JiraImportDialog  # noqa: E402
+from pomodoro.ui.compact_window import CompactWindow  # noqa: E402
 from pomodoro.ui.main_window import MainWindow  # noqa: E402
 from pomodoro.ui.pages.settings_page import SettingsPage  # noqa: E402
 from pomodoro.ui.pages.task_editor import TaskEditorPage  # noqa: E402
@@ -283,6 +284,70 @@ class JiraJ4UiTest(JiraUiCase):
         self.assertEqual([i["key"] for i in dialog.chosen()], ["ABC-6"])
         dialog.checks[1][0].set_active(False)
         self.assertFalse(dialog.import_button.get_sensitive())
+
+
+class JiraJ5UiTest(JiraUiCase):
+    def setUp(self):
+        super().setUp()
+        self.task_id = self.import_all()
+        self.fake.calls.clear()
+
+    def diverge(self):
+        self.repo.update_task(self.task_id, title="Meu título", estimate_min=45)
+        self.fake.pages = [[raw_issue("ABC-1", summary="Título do time", seconds=7200)]]
+        items, _ = self.preview()
+        self.controller.jira_import(items)
+
+    def test_settings_auto_sync_choice_is_saved_and_status_shown(self):
+        page = SettingsPage(self.controller)
+        self.assertEqual(page.jira_auto_select.value, 0)
+        page._apply({"jira_auto_sync_min": 30})
+        self.assertEqual(self.controller.settings["jira_auto_sync_min"], 30)
+        self.assertEqual(page.jira_sync_label.get_text(), "")
+        self.fake.pages = [[raw_issue("ABC-1"), raw_issue("ABC-9")]]
+        self.controller.jira_auto_sync()
+        page.refresh_jira_status()
+        self.assertIn("1 nova(s) para importar", page.jira_sync_label.get_text())
+        self.fake.status = 401
+        self.controller.jira_auto_sync()
+        page.refresh_jira_status()
+        self.assertIn("falhou", page.jira_sync_label.get_text())
+
+    def test_main_window_refreshes_status_on_sync_event(self):
+        window = MainWindow(self.controller)
+        self.addCleanup(window.destroy)
+        self.fake.pages = [[raw_issue("ABC-1")]]
+        self.controller.jira_auto_sync()
+        self.assertIn("Atualizado", window.settings_page.jira_sync_label.get_text())
+
+    def test_card_shows_conflicts_and_resolves_them(self):
+        self.diverge()
+        editor = TaskEditorPage(self.controller)
+        self.addCleanup(editor.destroy)
+        editor.load(self.task_id)
+        texts = labels(editor.jira_conflicts_box)
+        self.assertEqual(len([t for t in texts if "foi mantido" in t]), 2)
+        self.assertEqual(self.repo.get_task(self.task_id)["title"], "Meu título")
+        buttons = [w for w in walk(editor.jira_conflicts_box) if isinstance(w, Gtk.Button)]
+        self.assertEqual(sorted(b.get_label() for b in buttons),
+                         ["Manter o meu", "Manter o meu", "Usar o do Jira", "Usar o do Jira"])
+        editor._resolve_conflict("title", True)
+        self.assertEqual(self.repo.get_task(self.task_id)["title"], "Título do time")
+        editor._resolve_conflict("estimate", False)
+        self.assertEqual(self.repo.get_task(self.task_id)["estimate_min"], 45)
+        self.assertEqual(labels(editor.jira_conflicts_box), [])
+        self.assertEqual([c for c in self.fake.calls if c["method"] in ("POST", "PUT")
+                          and "search" not in c["url"]], [])
+
+    def test_compact_card_shows_issue_key(self):
+        window = CompactWindow(self.controller, on_expand=lambda: None, on_close=lambda: None,
+                               on_adjust=lambda task_id: None)
+        self.addCleanup(window.destroy)
+        with mock.patch.object(window, "get_visible", return_value=True):
+            self.controller.focus(self.task_id)
+            window.refresh()
+        self.assertEqual(window.focus_card.parent.get_text(), "ABC-1")
+        self.assertTrue(window.focus_card.parent.get_visible())
 
 
 if __name__ == "__main__":

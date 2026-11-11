@@ -20,6 +20,7 @@ TABS = [("focus", "Pomodoro e foco"), ("compact", "Modo compacto"), ("sound", "S
 END_SOUNDS = [("complete", "Sino suave"), ("message", "Mensagem"), ("bell", "Sino"),
               ("alarm-clock-elapsed", "Despertador"), ("", "Mudo")]
 THRESHOLDS = [(125, "125%"), (150, "150%"), (200, "200%")]
+AUTO_SYNC_CHOICES = [(0, "Desligado"), (15, "A cada 15 min"), (30, "A cada 30 min"), (60, "A cada hora")]
 COMPACT_FIELD_NAMES = {
     "remaining": "Tempo restante", "current_task": "Tarefa atual", "next_break": "Próximo intervalo",
     "progress": "Barra de progresso", "estimate_vs_real": "Previsto vs real",
@@ -318,6 +319,10 @@ class SettingsPage(Gtk.Box):
             "jira_jql": self._jira_entry("jira_jql", "padrão: minhas issues em aberto", width=34),
         }
         self.jira_status = label("", "small", "muted", wrap=True)
+        self.jira_auto_select = Select(AUTO_SYNC_CHOICES, self._closest_auto_sync(self.settings["jira_auto_sync_min"]),
+                                       width=190)
+        self.jira_auto_select.connect("changed", lambda _s, value: self._apply({"jira_auto_sync_min": value}))
+        self.jira_sync_label = label("", "caption", "muted", wrap=True)
         self.jira_test_button = button("Testar conexão", "btn-secondary", on_click=self._on_jira_test)
         self.jira_import_button = button("Importar minhas issues…", "btn-secondary", on_click=self._on_jira_import)
         card = section(
@@ -329,14 +334,34 @@ class SettingsPage(Gtk.Box):
             setting_row("Token da API", "Crie em id.atlassian.com → Segurança → Tokens de API. "
                         "Fica só neste computador. Se vazio, usa JIRA_API_TOKEN.", self.jira_entries["jira_token"]),
             setting_row("Busca (JQL)", "Vazio traz só as suas issues em aberto.", self.jira_entries["jira_jql"]),
+            setting_row("Atualizar sozinho", "Só lê do Jira e atualiza o que você já importou. "
+                        "Issues novas só avisam; nunca escreve no Jira.", self.jira_auto_select),
+            self.jira_sync_label,
             hbox(self.jira_test_button, self.jira_import_button, spacing=10),
             self.jira_status,
             width=560,
         )
+        self.refresh_jira_status()
         column = vbox(card, spacing=16)
         column.set_halign(Gtk.Align.START)
         column.set_valign(Gtk.Align.START)
         return column
+
+    @staticmethod
+    def _closest_auto_sync(minutes):
+        return min((value for value, _t in AUTO_SYNC_CHOICES), key=lambda value: abs(value - minutes))
+
+    def refresh_jira_status(self):
+        """Mostra o resultado da última atualização automática do Jira."""
+        status = self.controller.jira_sync_status
+        if not status:
+            self.jira_sync_label.set_text("")
+        elif not status["ok"]:
+            self.jira_sync_label.set_text(f"Última tentativa às {status['at'].strftime('%H:%M')} falhou: {status['message']}")
+        else:
+            news = f", {status['new']} nova(s) para importar" if status["new"] else ""
+            self.jira_sync_label.set_text(
+                f"Atualizado às {status['at'].strftime('%H:%M')}: {status['updated']} tarefa(s) atualizada(s){news}.")
 
     def _commit_jira_all(self):
         for key, entry in self.jira_entries.items():

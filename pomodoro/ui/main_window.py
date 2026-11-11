@@ -157,6 +157,9 @@ class MainWindow(Gtk.Window):
         if kind.startswith("jira-offer:"):
             GLib.idle_add(self.offer_jira_status, kind.partition(":")[2])      # fora do laço do evento
             return
+        if kind == "jira-sync":
+            self.settings_page.refresh_jira_status()
+            return
         if not self.get_visible():
             return                      # escondida na bandeja: refaz tudo ao reaparecer ("map")
         page = self.stack.get_visible_child_name()

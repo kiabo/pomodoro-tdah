@@ -9,6 +9,7 @@ Rode em thread, nunca junto com o SQLite.
 import base64
 import json
 import logging
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,6 +21,8 @@ SEARCH_FIELDS = ["summary", "description", "status", "project", "timetracking", 
 PAGE_SIZE = 100
 MAX_PAGES = 10
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+MAX_RETRIES = 2          # novas tentativas quando o Jira pede para esperar (429)
+MAX_WAIT_SECONDS = 30    # espera máxima aceita por tentativa; acima disso, desiste com uma mensagem
 
 
 class JiraError(Exception):
@@ -96,6 +99,15 @@ def parse_issue(raw, base_url):
     }
 
 
+def _retry_after(headers, default):
+    """Segundos que o Jira pediu para esperar (cabeçalho Retry-After), ou `default`."""
+    value = {k.lower(): v for k, v in (headers or {}).items()}.get("retry-after")
+    try:
+        return max(float(value), 0.0)
+    except (TypeError, ValueError):
+        return default
+
+
 def _reason(text):
     """Motivo que o Jira dá para recusar uma alteração (errorMessages / errors), ou ''."""
     try:
@@ -117,7 +129,9 @@ def _key_path(issue_key):
 
 
 class JiraClient:
-    def __init__(self, base_url, email, token, transport=None, timeout=30.0):
+    def __init__(self, base_url, email, token, transport=None, timeout=30.0, sleep=time.sleep):
+        self._sleep = sleep
+        self.truncated = False          # a última busca parou no limite de páginas (faltou ler issues)
         self.email = (email or "").strip()
         self._token = (token or "").strip()
         self._url = base_url
@@ -138,13 +152,21 @@ class JiraClient:
         if payload is not None:
             body = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
-        try:
-            status, text, response_headers = self._transport(method, base + path, headers, body, self._timeout)
-        except JiraError:
-            raise
-        except Exception as error:
-            log.warning("falha de rede no Jira: %s", error)
-            raise JiraError("Não consegui falar com o Jira. Confira a internet e o endereço.") from error
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                status, text, response_headers = self._transport(method, base + path, headers, body, self._timeout)
+            except JiraError:
+                raise
+            except Exception as error:
+                log.warning("falha de rede no Jira: %s", error)
+                raise JiraError("Não consegui falar com o Jira. Confira a internet e o endereço.") from error
+            if status != 429 or attempt == MAX_RETRIES:
+                break
+            wait = _retry_after(response_headers, default=2.0 * (attempt + 1))
+            if wait > MAX_WAIT_SECONDS:
+                break
+            log.info("Jira pediu para esperar %.0f s (tentativa %d)", wait, attempt + 1)
+            self._sleep(wait)      # o 429 recusa o pedido antes de processá-lo, então repetir é seguro
         if status == 403 and write:
             raise JiraError("Sua conta não tem permissão para fazer isso nesta issue.")
         if status in (401, 403):
@@ -180,7 +202,8 @@ class JiraClient:
         """Issues que casam com a JQL (padrão: as minhas em aberto), já convertidas."""
         base = self.base_url
         issues, token = [], None
-        for _page in range(MAX_PAGES):
+        self.truncated = False
+        for page in range(MAX_PAGES):
             payload = {"jql": (jql or "").strip() or DEFAULT_JQL, "fields": SEARCH_FIELDS, "maxResults": PAGE_SIZE}
             if token:
                 payload["nextPageToken"] = token
@@ -191,6 +214,7 @@ class JiraClient:
             token = data.get("nextPageToken")
             if not token or data.get("isLast"):
                 break
+            self.truncated = page == MAX_PAGES - 1
         return issues
 
     # ---- escrita: só o que o usuário confirmou ---------------------------

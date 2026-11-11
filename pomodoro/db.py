@@ -157,6 +157,9 @@ MIGRATIONS = [
     ALTER TABLE jira_pushes_new RENAME TO jira_pushes;
     CREATE INDEX idx_jira_pushes_task ON jira_pushes(task_id);
     """,
+    # 6: divergências. Quando o Jira muda o título ou a previsão e o usuário já tinha mudado o dele, o do usuário
+    # é mantido e o campo fica anotado aqui ("title", "estimate") até ele escolher.
+    "ALTER TABLE jira_links ADD COLUMN conflicts TEXT NOT NULL DEFAULT '';",
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)

@@ -32,6 +32,7 @@ class FakeJira:
         self.sub_types = [{"id": "10003", "name": "Sub-task", "subtask": True}, {"id": "10001", "name": "Task", "subtask": False}]
         self.remote_subtasks = []
         self.created = 0
+        self.throttle = 0                      # as próximas N chamadas respondem 429 (Retry-After: 1)
         self.transitions = transitions if transitions is not None else [
             {"id": "11", "name": "Iniciar", "to": {"name": "In Progress", "statusCategory": {"key": "indeterminate"}}},
             {"id": "31", "name": "Concluir", "to": {"name": "Done", "statusCategory": {"key": "done"}}}]
@@ -43,6 +44,9 @@ class FakeJira:
     def __call__(self, method, url, headers, body, timeout):
         self.calls.append({"method": method, "url": url, "headers": headers,
                            "body": json.loads(body) if body else None})
+        if self.throttle > 0:
+            self.throttle -= 1
+            return 429, "{}", {"Retry-After": "1"}
         if self.error:
             raise self.error
         if self.status != 200:

@@ -48,6 +48,10 @@ class Controller:
         self._jira_factory = jira_factory or JiraClient
         self.last_alert = None          # dados do último alerta de hiperfoco (para o modo compacto)
         self.last_pomodoro = None       # dados do último pomodoro concluído (para "como foi?")
+        self.jira_sync_status = None    # resultado da última atualização automática do Jira (para a tela)
+        self._jira_syncing = False
+        self._jira_last_attempt = None
+        self._jira_notified_new = set()
 
         self.timer = PomodoroTimer(self.settings, self._on_tick, self._on_phase_change, scheduler=scheduler)
         self.tracker = Tracker(self.repo, self.timer, lambda: self.settings, on_alert=self._on_alert)
@@ -91,6 +95,7 @@ class Controller:
             self.tracker.invalidate()
             self._emit("day")
             self._changed()
+        self._maybe_auto_sync_jira()
         if self._reminded_day != today and self._reminder_due():
             self._reminded_day = today
             review = self.repo.get_day_review(today.isoformat()) or {}
@@ -223,6 +228,8 @@ class Controller:
                                        else self.repo.subtasks_estimate_sum(task_id))
             sub = self.repo.get_subtask(subtask_id) if subtask_id else None
             context["subtask_title"] = sub["title"] if sub else None
+            link = self.repo.jira_link(task_id)
+            context["jira_key"] = link["issue_key"] if link else None
         if view is not None:
             context["next_title"], context["next_estimate_min"] = today_model.next_focus_item(
                 view, task_id, subtask_id)
@@ -617,13 +624,19 @@ class Controller:
         """Busca as minhas issues e compara com o que já existe. done(itens, erro). Não grava nada."""
         jql = self.settings["jira_jql"]
 
-        def fetched(issues, error):
+        def search(client):
+            issues = client.search(jql)
+            return issues, client.truncated
+
+        def fetched(outcome, error):
             if error:
                 done(None, error)
                 return
-            items = jira_importer.plan_import(self.repo, issues, self.settings["jira_project_groups"])
+            issues, truncated = outcome
+            items = jira_importer.Plan(jira_importer.plan_import(self.repo, issues, self.settings["jira_project_groups"]))
+            items.complete = not truncated
             done(items, None)
-        self._jira_call(lambda client: client.search(jql), fetched)
+        self._jira_call(search, fetched)
 
     def jira_import(self, items, group_choices=None):
         """Grava os itens marcados da pré-visualização. group_choices: {chave do projeto: id do grupo}."""
@@ -631,12 +644,70 @@ class Controller:
         for item in items:
             if item.action == jira_importer.NEW and choices.get(item.issue["project_key"]):
                 item.group_id = choices[item.issue["project_key"]]
-        result = jira_importer.apply_import(self.repo, items, all_keys=[i.issue["key"] for i in items])
+        # Só marca "fora do resultado" se a busca leu tudo; numa leitura cortada, faltar não quer dizer sumir.
+        keys = [i.issue["key"] for i in items] if getattr(items, "complete", True) else None
+        result = jira_importer.apply_import(self.repo, items, all_keys=keys)
         if choices:
             self.apply_settings({"jira_project_groups": {**self.settings["jira_project_groups"], **choices}})
         self.tracker.invalidate()
         self._changed()
         return result
+
+    def _maybe_auto_sync_jira(self):
+        minutes = self.settings["jira_auto_sync_min"]
+        if not minutes or self._jira_syncing or not self.jira_configured():
+            return
+        last = self._jira_last_attempt
+        if last is None or self._now() - last >= timedelta(minutes=minutes):
+            self.jira_auto_sync()
+
+    def jira_auto_sync(self):
+        """Atualiza o espelho do Jira (só leitura): refaz o que já foi importado e avisa de issues novas.
+
+        Não cria tarefas nem escreve no Jira. Issues novas só entram quando o usuário importa na tela.
+        """
+        if self._jira_syncing:
+            return
+        self._jira_syncing = True
+        self._jira_last_attempt = self._now()
+
+        def finished(items, error):
+            self._jira_syncing = False
+            if error:
+                self.jira_sync_status = {"at": self._now(), "ok": False, "message": error}
+                self._emit("jira-sync")
+                return
+            new = [i for i in items if i.action == jira_importer.NEW]
+            for item in new:
+                item.selected = False                      # criar tarefa é decisão do usuário
+            keys = [i.issue["key"] for i in items] if items.complete else None
+            result = jira_importer.apply_import(self.repo, items, all_keys=keys)
+            self.jira_sync_status = {"at": self._now(), "ok": True, "updated": result["updated"], "new": len(new),
+                                     "message": ""}
+            fresh = {i.issue["key"] for i in new} - self._jira_notified_new
+            if fresh:
+                self._jira_notified_new |= fresh
+                self._notify(f"{len(fresh)} issue(s) nova(s) no Jira. Importe em Configurações → Jira.")
+            if result["updated"]:
+                self.tracker.invalidate()
+                self._changed()
+            self._emit("jira-sync")
+        self.jira_preview(finished)
+
+    def jira_resolve_conflict(self, task_id, field, use_jira):
+        """Resolve uma divergência de título ou previsão: usar o valor do Jira ou manter o do usuário."""
+        link = self.repo.jira_link(task_id)
+        if link is None or field not in ("title", "estimate"):
+            raise ValueError("Nada para resolver.")
+        if use_jira:
+            if field == "title" and link["remote_title"]:
+                self.repo.update_task(task_id, title=link["remote_title"])
+            elif field == "estimate":
+                self.repo.update_task(task_id, estimate_min=link["remote_estimate_min"])
+        remaining = [f for f in (link["conflicts"] or "").split(",") if f and f != field]
+        self.repo.save_jira_link(task_id, link["issue_key"], conflicts=",".join(remaining))
+        self.tracker.invalidate()
+        self._changed()
 
     def jira_link(self, task_id):
         return self.repo.jira_link(task_id)
@@ -763,6 +834,8 @@ class Controller:
                     updates["remote_title"] = result["fields"]["title"]
                 if "estimate" in result["fields"]:
                     updates["remote_estimate_min"] = result["fields"]["estimate"]
+                left = [f for f in (link["conflicts"] or "").split(",") if f and f not in result["fields"]]
+                updates["conflicts"] = ",".join(left)
                 self.repo.save_jira_link(task_id, key, **updates)
             elif preview["kind"] == jira_push.WORKLOG:
                 for entry in result["worklogs"]:

@@ -65,6 +65,14 @@ Para escrever no Jira, abra a tarefa no editor, no cartão "Jira":
 
 Cada envio confirmado fica registrado ("Último envio…"). Se o Jira recusar, nada é registrado e o motivo aparece.
 
+**Atualizar sozinho** (Configurações → Jira, desligado por padrão): a cada 15, 30 ou 60 minutos o app relê o Jira
+e atualiza o que você já importou. É só leitura: issues novas apenas avisam ("importe em Configurações"), e nada é
+escrito no Jira. Se o Jira pedir para esperar (limite de requisições), o app espera e tenta de novo.
+
+**Divergências:** se o Jira mudou o título ou a previsão *e* você já tinha mudado o seu, o seu é mantido e o cartão
+avisa, com "Usar o do Jira" ou "Manter o meu". Enviar o campo ao Jira também resolve. No modo compacto, a chave da
+issue (`ABC-123`) aparece abaixo do título da tarefa em foco.
+
 Atualizar repete o mesmo caminho: o título só acompanha o Jira enquanto você não o renomear, e issues que saem da
 sua lista ficam marcadas, sem apagar a tarefa.
 

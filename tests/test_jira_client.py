@@ -9,7 +9,8 @@ URL = "https://x.atlassian.net"
 
 
 def make(fake, **kwargs):
-    return jc.JiraClient(kwargs.get("url", URL), "eu@exemplo.com", "tok", transport=fake)
+    return jc.JiraClient(kwargs.get("url", URL), "eu@exemplo.com", "tok", transport=fake,
+                         sleep=kwargs.get("sleep", lambda seconds: None))
 
 
 class NormalizeUrlTest(unittest.TestCase):

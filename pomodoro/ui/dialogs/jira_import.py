@@ -40,6 +40,9 @@ class JiraImportDialog(Gtk.Dialog):
                       "text2", wrap=True))
         box.add(label("Importar só lê do Jira. Suas subtarefas, notas e previsões não são alteradas, "
                       "e nada é enviado de volta.", "caption", "muted", wrap=True))
+        if not getattr(items, "complete", True):
+            box.add(label("Há mais issues do que o app lê de uma vez (1000). Só as primeiras apareceram; "
+                          "refine a JQL em Configurações → Jira para ver as outras.", "caption", "text-amber", wrap=True))
         if self._projects():
             box.add(self._groups_section())
         rows = vbox(spacing=6)

@@ -62,6 +62,7 @@ DEFAULT_SETTINGS = {
     "jira_email": "",
     "jira_token": "",                  # token da API; se vazio, usa a variável JIRA_API_TOKEN
     "jira_jql": "",                    # vazio = minhas issues em aberto
+    "jira_auto_sync_min": 0,           # 0 = desligada; senão atualiza o espelho (só leitura) a cada N min
     "jira_project_groups": {},         # {chave do projeto: id do grupo} lembrado entre importações
 }
 
@@ -73,6 +74,7 @@ _RANGES = {
     "warn_before_end_min": (0, 30),
     "hyperfocus_threshold_pct": (100, 500),
     "free_minutes_per_day": (0, 24 * 60),
+    "jira_auto_sync_min": (0, 24 * 60),
 }
 
 

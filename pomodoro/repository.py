@@ -25,7 +25,7 @@ TASK_FIELDS = {
 SUBTASK_FIELDS = {"title", "estimate_min", "done", "position"}
 JIRA_LINK_FIELDS = {
     "issue_id", "project_key", "url", "remote_title", "remote_description", "remote_status",
-    "remote_status_category", "remote_estimate_min", "remote_updated", "missing",
+    "remote_status_category", "remote_estimate_min", "remote_updated", "missing", "conflicts",
 }
 
 
