@@ -229,3 +229,46 @@ class JiraClient:
         if not fields:
             return
         self._request("PUT", f"/rest/api/2/issue/{_key_path(issue_key)}", {"fields": fields}, write=True)
+
+    def add_worklog(self, issue_key, seconds, started, comment=""):
+        """Lança tempo trabalhado. started no formato do Jira (2026-11-11T14:00:00.000-0300). Devolve o id."""
+        if seconds < 60:
+            raise JiraError("O Jira só aceita lançamentos de pelo menos 1 minuto.")
+        payload = {"timeSpentSeconds": int(seconds), "started": started}
+        if comment:
+            payload["comment"] = comment
+        data = self._request("POST", f"/rest/api/2/issue/{_key_path(issue_key)}/worklog", payload, write=True)
+        return str(data.get("id") or "")
+
+    def subtask_types(self, project_key):
+        """[{id, name}] dos tipos de sub-tarefa que o projeto aceita."""
+        data = self._request("GET", f"/rest/api/2/project/{_key_path(project_key)}")
+        types = [{"id": str(t.get("id")), "name": t.get("name") or ""}
+                 for t in data.get("issueTypes") or [] if t.get("subtask")]
+        if not types:
+            raise JiraError("Este projeto do Jira não permite sub-tarefas.")
+        return types
+
+    def create_subtask(self, parent_key, project_key, title, type_id, estimate_min=None):
+        """Cria uma sub-tarefa filha de parent_key. Devolve a chave criada (ex.: ABC-12)."""
+        if not (title or "").strip():
+            raise JiraError("O título da subtarefa está vazio.")
+        fields = {"project": {"key": project_key}, "parent": {"key": parent_key}, "issuetype": {"id": str(type_id)},
+                  "summary": title.strip()}
+        if estimate_min:
+            fields["timetracking"] = {"originalEstimate": f"{int(estimate_min)}m"}
+        data = self._request("POST", "/rest/api/2/issue", {"fields": fields}, write=True)
+        if not data.get("key"):
+            raise JiraError("O Jira não devolveu a chave da subtarefa criada.")
+        return data["key"]
+
+    def subtasks_of(self, issue_key):
+        """[{key, title, done}] das sub-tarefas que já existem no Jira (leitura)."""
+        data = self._request("GET", f"/rest/api/2/issue/{_key_path(issue_key)}?fields=subtasks")
+        result = []
+        for raw in (data.get("fields") or {}).get("subtasks") or []:
+            fields = raw.get("fields") or {}
+            category = ((fields.get("status") or {}).get("statusCategory") or {}).get("key")
+            result.append({"key": raw.get("key"), "title": (fields.get("summary") or raw.get("key") or "").strip(),
+                           "done": category == "done"})
+        return [r for r in result if r["key"]]

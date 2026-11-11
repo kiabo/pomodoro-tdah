@@ -55,6 +55,14 @@ Para escrever no Jira, abra a tarefa no editor, no cartão "Jira":
 - **Mudar status…**: lista as transições que o fluxo do seu projeto permite. Ao concluir uma tarefa ligada ao
   Jira, o app também pergunta se quer mover a issue (dizer não não muda nada lá).
 
+- **Lançar tempo…**: manda o tempo cronometrado aqui como worklog, um lançamento por dia (você marca os dias).
+  Cada sessão só é lançada uma vez, então dá para lançar de novo depois sem duplicar. Dias com menos de 1 minuto
+  ficam de fora, porque o Jira não aceita.
+- **Criar subtarefas lá…**: transforma subtarefas locais em sub-tarefas da issue. As desmarcadas, e todas por
+  padrão, continuam só locais. A subtarefa criada ganha a chave (`ABC-12`), mas concluir uma aqui não conclui lá.
+- **Trazer subtarefas de lá…**: o caminho inverso, só leitura: cria subtarefas locais a partir das que já existem
+  na issue.
+
 Cada envio confirmado fica registrado ("Último envio…"). Se o Jira recusar, nada é registrado e o motivo aparece.
 
 Atualizar repete o mesmo caminho: o título só acompanha o Jira enquanto você não o renomear, e issues que saem da

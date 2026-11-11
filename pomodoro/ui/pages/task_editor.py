@@ -62,10 +62,12 @@ class _SubtaskRow(Gtk.EventBox):
         self.play = button("▶", "btn-ghost", tooltip="Focar nesta subtarefa")
         self.play.set_sensitive(sub is not None)
         self.play.connect("clicked", lambda *_: editor.on_focus_subtask(self))
+        self.jira_badge = label(sub["jira_key"] if sub and sub.get("jira_key") else "", "caption", "text-primary", "bold")
+        self.jira_badge.set_tooltip_text("Sub-tarefa ligada a esta no Jira")
         remove = button("✕", "btn-ghost", tooltip="Excluir subtarefa")
         remove.connect("clicked", lambda *_: editor.on_delete_subtask(self))
 
-        row = hbox(self.handle, self.check, self.title_entry, self.time_entry, self.real_label, self.play, remove,
+        row = hbox(self.handle, self.check, self.title_entry, self.jira_badge, self.time_entry, self.real_label, self.play, remove,
                    spacing=10, classes=("sub-row-active",) if active else ())
         row.set_margin_start(4)
         self.add(row)
@@ -235,7 +237,13 @@ class TaskEditorPage(Gtk.Box):
         self.jira_send_comment = button("Enviar notas como comentário…", "btn-secondary", on_click=self._on_jira_comment)
         self.jira_send_fields = button("Atualizar título e previsão…", "btn-secondary", on_click=self._on_jira_fields)
         self.jira_send_status = button("Mudar status…", "btn-secondary", on_click=self._on_jira_status)
-        self.jira_actions = hbox(self.jira_send_comment, self.jira_send_fields, self.jira_send_status, spacing=8)
+        self.jira_send_worklog = button("Lançar tempo…", "btn-secondary", on_click=self._on_jira_worklog)
+        self.jira_send_subtasks = button("Criar subtarefas lá…", "btn-secondary", on_click=self._on_jira_subtasks)
+        self.jira_pull_subtasks = button("Trazer subtarefas de lá…", "btn-secondary", on_click=self._on_jira_pull)
+        self.jira_actions = flow(self.jira_send_comment, self.jira_send_fields, self.jira_send_status,
+                                 self.jira_send_worklog, self.jira_send_subtasks, self.jira_pull_subtasks,
+                                 max_per_line=3, spacing=8, homogeneous=False)
+        self.jira_logged_label = label("", "caption", "muted")
         self.jira_description = Gtk.TextView()
         style(self.jira_description, "notes-view")
         self.jira_description.set_editable(False)
@@ -250,7 +258,7 @@ class TaskEditorPage(Gtk.Box):
         self.jira_card = vbox(
             label("JIRA · NADA É ENVIADO SEM VOCÊ CONFIRMAR", "eyebrow"), head, self.jira_title_label, self.jira_warning,
             hbox(self.jira_estimate_label, self.jira_use_estimate, spacing=10), self.jira_description_scroll,
-            self.jira_actions, self.jira_last_push,
+            self.jira_actions, self.jira_logged_label, self.jira_last_push,
             label("Seus passos, notas e previsão ficam só aqui, a não ser que você envie.", "caption", "faint"),
             spacing=8, classes=("card-soft",))
         self.jira_card.show_all()               # os filhos já ficam visíveis; só o cartão aparece sob demanda
@@ -378,6 +386,10 @@ class TaskEditorPage(Gtk.Box):
         self.jira_use_estimate.set_visible(bool(estimate) and estimate != task["estimate_min"])
         self.jira_description.get_buffer().set_text(link["remote_description"] or "")
         self.jira_description_scroll.set_visible(bool(link["remote_description"]))
+        logged = detail.get("jira_logged_seconds", 0)
+        self.jira_logged_label.set_text(f"Tempo já lançado no Jira: {format_real(logged)} de "
+                                        f"{format_real(detail['real_seconds'])} cronometrados." if logged else "")
+        self.jira_logged_label.set_visible(bool(logged))
         pushes = self.controller.jira_pushes(task["id"])
         self.jira_last_push.set_text(
             f"Último envio: {pushes[0]['detail']} · {pushes[0]['sent_at'].replace('T', ' ')[:16]}" if pushes else "")
@@ -398,7 +410,8 @@ class TaskEditorPage(Gtk.Box):
         self.notice(error or message, error=bool(error))
         detail = self.controller.task_detail(self.task_id) if self.task_id else None
         if detail:
-            self._fill_jira(detail)            # só o cartão: não mexe no que estiver sendo digitado
+            self._fill_jira(detail)            # só o cartão e as subtarefas: não mexe nos outros campos
+            self._fill_subtasks(detail)
 
     def _send_to_jira(self, preview):
         from ..dialogs.jira_push import send
@@ -415,6 +428,33 @@ class TaskEditorPage(Gtk.Box):
             self._send_to_jira(self.controller.jira_prepare_fields(self.task_id))
         except ValueError as error:
             self.notice(str(error), error=True)
+
+    def _on_jira_worklog(self):
+        try:
+            self._send_to_jira(self.controller.jira_prepare_worklog(self.task_id))
+        except ValueError as error:
+            self.notice(str(error), error=True)
+
+    def _on_jira_subtasks(self):
+        def ready(preview, error):
+            if error:
+                self.notice(error, error=True)
+            else:
+                self._send_to_jira(preview)
+        self.controller.jira_prepare_subtasks(self.task_id, ready)
+
+    def _on_jira_pull(self):
+        from ..dialogs.jira_push import ask_pull
+
+        def ready(found, error):
+            if error:
+                self.notice(error, error=not found)
+                return
+            chosen = ask_pull(self.get_toplevel(), self._detail["jira"]["issue_key"], found)
+            if chosen:
+                count = self.controller.jira_pull_subtasks(self.task_id, chosen)
+                self.notice(f"{count} subtarefa(s) trazida(s) do Jira.")
+        self.controller.jira_prepare_pull_subtasks(self.task_id, ready)
 
     def _on_jira_status(self):
         def ready(preview, error):

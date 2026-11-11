@@ -592,3 +592,31 @@ class Repository:
     def list_jira_pushes(self, task_id):
         return _rows(self.conn.execute(
             "SELECT * FROM jira_pushes WHERE task_id = ? ORDER BY id DESC", (task_id,)))
+
+    # ---- Jira: worklog e subtarefas ---------------------------------------
+
+    def unlogged_sessions(self, task_id):
+        """Sessões de tempo real (foco e ajustes) já encerradas que ainda não foram lançadas no Jira."""
+        return _rows(self.conn.execute(
+            "SELECT s.* FROM sessions s WHERE s.task_id = ? AND s.kind IN ('work', 'manual')"
+            " AND s.ended_at IS NOT NULL AND s.id NOT IN (SELECT session_id FROM jira_worklogs)"
+            " ORDER BY s.started_at, s.id", (task_id,)))
+
+    def record_worklog(self, session_ids, task_id, issue_key, worklog_id):
+        with self.conn:
+            for session_id in session_ids:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO jira_worklogs(session_id, task_id, issue_key, worklog_id, logged_at)"
+                    " VALUES (?, ?, ?, ?, ?)", (session_id, task_id, issue_key, str(worklog_id), self._ts()))
+
+    def jira_logged_seconds(self, task_id):
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(s.seconds), 0) FROM sessions s JOIN jira_worklogs w ON w.session_id = s.id"
+            " WHERE w.task_id = ?", (task_id,)).fetchone()
+        return row[0]
+
+    def set_subtask_jira_key(self, subtask_id, issue_key):
+        with self.conn:
+            cur = self.conn.execute("UPDATE subtasks SET jira_key = ? WHERE id = ?", (issue_key, subtask_id))
+        if cur.rowcount == 0:
+            raise KeyError(f"subtarefa {subtask_id} não existe")

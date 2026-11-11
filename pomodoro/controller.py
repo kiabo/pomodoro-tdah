@@ -401,7 +401,7 @@ class Controller:
             "task": task,
             "group": repo.get_group(task["group_id"]),
             "subtasks": [{"id": s["id"], "title": s["title"], "estimate_min": s["estimate_min"],
-                          "done": bool(s["done"]), "real_seconds": repo.real_seconds_subtask(s["id"])}
+                          "jira_key": s["jira_key"], "done": bool(s["done"]), "real_seconds": repo.real_seconds_subtask(s["id"])}
                          for s in subs],
             "real_seconds": repo.real_seconds(task_id),
             "pomodoros": sum(1 for s in sessions if s["kind"] == "work" and s["completed_phase"]),
@@ -409,6 +409,7 @@ class Controller:
             "sessions": sessions,
             "distractions": repo.list_distractions(task_id=task_id),
             "jira": repo.jira_link(task_id),
+            "jira_logged_seconds": repo.jira_logged_seconds(task_id),
         }
 
     def update_task(self, task_id, **fields):
@@ -676,6 +677,57 @@ class Controller:
                 done(None, str(problem))
         self._jira_call(lambda client: client.transitions(link["issue_key"]), fetched)
 
+    def jira_prepare_worklog(self, task_id):
+        task, link = self._linked(task_id)
+        return jira_push.worklog_preview(task, link, self.repo.unlogged_sessions(task_id))
+
+    def jira_prepare_subtasks(self, task_id, done):
+        """Busca os tipos de sub-tarefa do projeto. done(pré-visualização, erro)."""
+        try:
+            task, link = self._linked(task_id)
+            if not link["project_key"]:
+                raise ValueError("Importe de novo a issue para o app saber o projeto dela.")
+            if not [s for s in self.repo.list_subtasks(task_id) if not s["jira_key"]]:
+                raise ValueError("Todas as subtarefas já estão no Jira, ou não há subtarefas.")
+        except ValueError as error:
+            done(None, str(error))
+            return
+
+        def fetched(types, error):
+            if error:
+                done(None, error)
+                return
+            done(jira_push.subtasks_preview(task, link, self.repo.list_subtasks(task_id), types), None)
+        self._jira_call(lambda client: client.subtask_types(link["project_key"]), fetched)
+
+    def jira_prepare_pull_subtasks(self, task_id, done):
+        """Lê as sub-tarefas que já existem na issue e separa as que ainda não estão aqui. done(lista, erro)."""
+        try:
+            _task, link = self._linked(task_id)
+        except ValueError as error:
+            done(None, str(error))
+            return
+        known = {s["jira_key"] for s in self.repo.list_subtasks(task_id) if s["jira_key"]}
+
+        def fetched(found, error):
+            if error:
+                done(None, error)
+                return
+            new = [f for f in found if f["key"] not in known]
+            done(new, None if new else "Não há sub-tarefas novas no Jira para trazer.")
+        self._jira_call(lambda client: client.subtasks_of(link["issue_key"]), fetched)
+
+    def jira_pull_subtasks(self, task_id, found):
+        """Cria subtarefas locais (já ligadas à sub-tarefa do Jira) para as escolhidas. Só lê do Jira."""
+        for item in found:
+            sub = self.repo.add_subtask(task_id, item["title"])
+            self.repo.set_subtask_jira_key(sub["id"], item["key"])
+            if item["done"]:
+                self.repo.set_subtask_done(sub["id"], True)
+        self.tracker.invalidate()
+        self._changed()
+        return len(found)
+
     def jira_push(self, preview, done):
         """Envia a pré-visualização confirmada. done(mensagem, erro). Registra o envio só se der certo."""
         try:
@@ -689,6 +741,11 @@ class Controller:
                 done(None, error)
                 return
             self._after_push(preview, result)
+            if result.get("error"):
+                sent = len(result.get("worklogs") or result.get("created") or [])
+                done(None, f"Enviei {sent} de {result['planned']} para {preview['issue_key']}; "
+                           f"o resto não foi. {result['error']}")
+                return
             done(f"Enviado para {preview['issue_key']}.", None)
         self._jira_call(lambda client: jira_push.execute(client, preview), finished)
 
@@ -707,6 +764,12 @@ class Controller:
                 if "estimate" in result["fields"]:
                     updates["remote_estimate_min"] = result["fields"]["estimate"]
                 self.repo.save_jira_link(task_id, key, **updates)
+            elif preview["kind"] == jira_push.WORKLOG:
+                for entry in result["worklogs"]:
+                    self.repo.record_worklog(entry["session_ids"], task_id, key, entry["worklog_id"])
+            elif preview["kind"] == jira_push.SUBTASKS:
+                for entry in result["created"]:
+                    self.repo.set_subtask_jira_key(entry["subtask_id"], entry["key"])
         self.repo.log_jira_push(task_id, key, preview["kind"], result["detail"])
         self._changed()
 

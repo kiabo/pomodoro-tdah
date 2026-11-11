@@ -27,6 +27,11 @@ class FakeJira:
     def __init__(self, pages=None, status=200, myself=None, error=None, headers=None, write_status=None,
                  write_body="{}", transitions=None):
         self.write_status, self.write_body = write_status, write_body
+        self.fail_write_from = None            # a partir da N-ésima escrita (1, 2, ...), responde 500
+        self.writes_seen = 0
+        self.sub_types = [{"id": "10003", "name": "Sub-task", "subtask": True}, {"id": "10001", "name": "Task", "subtask": False}]
+        self.remote_subtasks = []
+        self.created = 0
         self.transitions = transitions if transitions is not None else [
             {"id": "11", "name": "Iniciar", "to": {"name": "In Progress", "statusCategory": {"key": "indeterminate"}}},
             {"id": "31", "name": "Concluir", "to": {"name": "Done", "statusCategory": {"key": "done"}}}]
@@ -42,6 +47,23 @@ class FakeJira:
             raise self.error
         if self.status != 200:
             return self.status, "{}", self.headers
+        if method == "GET" and "/rest/api/2/project/" in url:
+            return 200, json.dumps({"issueTypes": self.sub_types}), {}
+        if method == "GET" and "fields=subtasks" in url:
+            return 200, json.dumps({"fields": {"subtasks": self.remote_subtasks}}), {}
+        if method in ("PUT", "POST") and "search" not in url:
+            self.writes_seen += 1
+            if self.fail_write_from and self.writes_seen >= self.fail_write_from:
+                return 500, "{}", {}
+        if method == "POST" and url.endswith("/rest/api/2/issue"):
+            if self.write_status:
+                return self.write_status, self.write_body, {}
+            self.created += 1
+            return 201, json.dumps({"id": str(500 + self.created), "key": f"ABC-{100 + self.created}"}), {}
+        if method == "POST" and url.endswith("/worklog"):
+            if self.write_status:
+                return self.write_status, self.write_body, {}
+            return 201, json.dumps({"id": f"W{self.writes_seen}"}), {}
         if url.endswith("/transitions") and method == "GET":
             return 200, json.dumps({"transitions": self.transitions}), {}
         if method in ("PUT", "POST") and "/issue/" in url:

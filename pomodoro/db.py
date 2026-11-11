@@ -128,6 +128,35 @@ MIGRATIONS = [
     );
     CREATE INDEX idx_jira_pushes_task ON jira_pushes(task_id);
     """,
+    # 5: worklog e subtarefas no Jira. jira_worklogs lembra quais sessões já foram lançadas (para nunca
+    # lançar o mesmo tempo duas vezes); subtasks.jira_key liga uma subtarefa local à sub-task criada no Jira
+    # (vazio = só local). O registro de envios passa a aceitar os dois novos tipos.
+    """
+    ALTER TABLE subtasks ADD COLUMN jira_key TEXT;
+
+    CREATE TABLE jira_worklogs (
+        session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        issue_key  TEXT NOT NULL,
+        worklog_id TEXT NOT NULL,
+        logged_at  TEXT NOT NULL
+    );
+    CREATE INDEX idx_jira_worklogs_task ON jira_worklogs(task_id);
+
+    CREATE TABLE jira_pushes_new (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id   TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        issue_key TEXT NOT NULL,
+        kind      TEXT NOT NULL CHECK (kind IN ('comment', 'status', 'fields', 'worklog', 'subtasks')),
+        detail    TEXT NOT NULL DEFAULT '',
+        sent_at   TEXT NOT NULL
+    );
+    INSERT INTO jira_pushes_new(id, task_id, issue_key, kind, detail, sent_at)
+        SELECT id, task_id, issue_key, kind, detail, sent_at FROM jira_pushes;
+    DROP TABLE jira_pushes;
+    ALTER TABLE jira_pushes_new RENAME TO jira_pushes;
+    CREATE INDEX idx_jira_pushes_task ON jira_pushes(task_id);
+    """,
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)

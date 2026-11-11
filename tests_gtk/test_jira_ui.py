@@ -199,5 +199,91 @@ class JiraPushUiTest(JiraUiCase):
         self.assertEqual(self.writes(), [])
 
 
+class JiraJ4UiTest(JiraUiCase):
+    def setUp(self):
+        super().setUp()
+        self.task_id = self.import_all()
+        self.fake.calls.clear()
+        self.editor = TaskEditorPage(self.controller)
+        self.addCleanup(self.editor.destroy)
+        self.editor.load(self.task_id)
+
+    def writes(self):
+        return [c for c in self.fake.calls if c["method"] in ("POST", "PUT")]
+
+    def seed(self):
+        with self.controller.conn:
+            self.controller.conn.execute(
+                "INSERT INTO sessions(task_id, kind, started_at, ended_at, seconds) "
+                "VALUES (?, 'work', '2026-11-09T09:00:00', '2026-11-09T09:25:00', 1500)", (self.task_id,))
+
+    def confirm_all(self, _parent, preview):
+        preview["confirmed"] = True
+        return preview
+
+    def test_worklog_dialog_lists_days_and_needs_a_selection(self):
+        self.seed()
+        preview = self.controller.jira_prepare_worklog(self.task_id)
+        dialog = push_dialog.JiraPushDialog(None, preview)
+        self.addCleanup(dialog.destroy)
+        self.assertTrue(any("09/11/2026" in t for t in labels(dialog.get_content_area())))
+        self.assertTrue(dialog.send_button.get_sensitive())
+        dialog.day_checks[0][0].set_active(False)
+        self.assertFalse(dialog.send_button.get_sensitive())
+
+    def test_worklog_button_sends_and_updates_card(self):
+        self.seed()
+        with mock.patch.object(push_dialog, "ask_push", side_effect=self.confirm_all):
+            self.editor._on_jira_worklog()
+        self.assertEqual(self.writes()[0]["body"]["timeSpentSeconds"], 1500)
+        self.assertIn("25m", self.editor.jira_logged_label.get_text().replace(" ", ""))
+        self.assertTrue(self.editor.jira_logged_label.get_visible())
+
+    def test_worklog_without_time_shows_notice(self):
+        with mock.patch.object(push_dialog, "ask_push") as ask:
+            self.editor._on_jira_worklog()
+        ask.assert_not_called()
+        self.assertIn("Não há tempo novo", self.editor.notice_label.get_text())
+
+    def test_create_subtasks_flow_and_badge(self):
+        self.controller.add_subtask(self.task_id, "Passo A", 15)
+        self.editor.load(self.task_id)
+        with mock.patch.object(push_dialog, "ask_push", side_effect=self.confirm_all):
+            self.editor._on_jira_subtasks()
+        self.assertEqual(self.writes()[0]["body"]["fields"]["summary"], "Passo A")
+        badges = [r.jira_badge.get_text() for r in self.editor.sub_rows_box.get_children()]
+        self.assertEqual(badges, ["ABC-101"])
+
+    def test_subtasks_dialog_with_several_types_lets_user_choose(self):
+        self.controller.add_subtask(self.task_id, "Passo A")
+        self.fake.sub_types = [{"id": "1", "name": "Sub-task", "subtask": True},
+                               {"id": "2", "name": "Bug sub", "subtask": True}]
+        box = []
+        self.controller.jira_prepare_subtasks(self.task_id, lambda preview, error: box.append(preview))
+        dialog = push_dialog.JiraPushDialog(None, box[0])
+        self.addCleanup(dialog.destroy)
+        dialog.type_radios[1][0].set_active(True)
+        dialog.sub_checks[0][0].set_active(True)
+        self.assertEqual(dialog.confirm()["type_id"], "2")
+
+    def test_pull_subtasks_flow(self):
+        self.fake.remote_subtasks = [
+            {"key": "ABC-5", "fields": {"summary": "Já existe lá", "status": {"statusCategory": {"key": "new"}}}}]
+        with mock.patch.object(push_dialog, "ask_pull", side_effect=lambda parent, key, found: found):
+            self.editor._on_jira_pull()
+        self.assertIn("1 subtarefa", self.editor.notice_label.get_text())
+        self.assertEqual(self.controller.repo.list_subtasks(self.task_id)[0]["jira_key"], "ABC-5")
+        self.assertEqual(self.writes(), [])
+
+    def test_pull_dialog_choices(self):
+        found = [{"key": "ABC-5", "title": "A", "done": False}, {"key": "ABC-6", "title": "B", "done": True}]
+        dialog = push_dialog.JiraPullDialog(None, "ABC-1", found)
+        self.addCleanup(dialog.destroy)
+        dialog.checks[0][0].set_active(False)
+        self.assertEqual([i["key"] for i in dialog.chosen()], ["ABC-6"])
+        dialog.checks[1][0].set_active(False)
+        self.assertFalse(dialog.import_button.get_sensitive())
+
+
 if __name__ == "__main__":
     unittest.main()
