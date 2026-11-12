@@ -6,10 +6,11 @@ from .color_palette import ColorPalette
 from .cycle_bar import CycleBar
 from .progress_ring import ProgressRing
 from .quick_entry import QuickEntry
+from .jira import JiraMenuButton, badge, banner, key_chip
 from .select import DatePicker, Select
 from .time_stepper import TimeStepper
 
 __all__ = [
     "BAR_COLORS", "STATUS_LABELS", "BarChart", "CapacityBar", "ChoiceGroup", "GroupDot", "ProgressRing", "QuickEntry", "ColorPalette", "CycleBar", "DatePicker", "Select",
-    "StatusPill", "TimeStepper", "make_bar", "make_toggle", "set_bar_fraction",
+    "JiraMenuButton", "StatusPill", "TimeStepper", "badge", "banner", "key_chip", "make_bar", "make_toggle", "set_bar_fraction",
 ]

@@ -18,6 +18,8 @@ from pathlib import Path
 from .ai import analysis as ai_analysis, summary as ai_summary
 from .ai.claude_client import AIUnavailable, ClaudeClient
 from .ai.estimator import Estimator
+from .jira import importer as jira_importer, push as jira_push
+from .jira.client import JiraClient, JiraError, jql_for
 from . import db, export, groups as groups_model, planning, settings as settings_store, today as today_model
 from .repository import Repository
 from .timer import PHASE_LABELS, Phase, PomodoroTimer
@@ -28,7 +30,7 @@ log = logging.getLogger(__name__)
 
 class Controller:
     def __init__(self, data_dir=None, settings=None, scheduler=None, notify=None, play_sound=None,
-                 now=datetime.now, today=date.today, run_async=None, claude_factory=None):
+                 now=datetime.now, today=date.today, run_async=None, claude_factory=None, jira_factory=None):
         self.data_dir = Path(data_dir or settings_store.data_dir())
         self.settings = settings if settings is not None else settings_store.load_settings(self.data_dir)
         self.conn = db.open_database(self.data_dir)
@@ -43,8 +45,13 @@ class Controller:
         self.estimator = Estimator()
         self._run_async = run_async or _run_in_thread
         self._claude_factory = claude_factory or ClaudeClient
+        self._jira_factory = jira_factory or JiraClient
         self.last_alert = None          # dados do último alerta de hiperfoco (para o modo compacto)
         self.last_pomodoro = None       # dados do último pomodoro concluído (para "como foi?")
+        self.jira_sync_status = None    # resultado da última atualização automática do Jira (para a tela)
+        self._jira_syncing = False
+        self._jira_last_attempt = None
+        self._jira_notified_new = set()
 
         self.timer = PomodoroTimer(self.settings, self._on_tick, self._on_phase_change, scheduler=scheduler)
         self.tracker = Tracker(self.repo, self.timer, lambda: self.settings, on_alert=self._on_alert)
@@ -88,6 +95,7 @@ class Controller:
             self.tracker.invalidate()
             self._emit("day")
             self._changed()
+        self._maybe_auto_sync_jira()
         if self._reminded_day != today and self._reminder_due():
             self._reminded_day = today
             review = self.repo.get_day_review(today.isoformat()) or {}
@@ -192,6 +200,8 @@ class Controller:
         else:
             return None
         self._changed()
+        if result == "task":
+            self._offer_jira_status(task_id)
         return result
 
     # ---- tarefas --------------------------------------------------------
@@ -218,6 +228,8 @@ class Controller:
                                        else self.repo.subtasks_estimate_sum(task_id))
             sub = self.repo.get_subtask(subtask_id) if subtask_id else None
             context["subtask_title"] = sub["title"] if sub else None
+            link = self.repo.jira_link(task_id)
+            context["jira_key"] = link["issue_key"] if link else None
         if view is not None:
             context["next_title"], context["next_estimate_min"] = today_model.next_focus_item(
                 view, task_id, subtask_id)
@@ -251,6 +263,8 @@ class Controller:
         if done:
             planning.spawn_recurring(self.repo, self.today())      # a próxima ocorrência já fica agendada
         self._changed()
+        if done:
+            self._offer_jira_status(task_id)
 
     def add_subtask(self, task_id, title, estimate_min=None):
         sub = self.repo.add_subtask(task_id, title, estimate_min)
@@ -394,13 +408,15 @@ class Controller:
             "task": task,
             "group": repo.get_group(task["group_id"]),
             "subtasks": [{"id": s["id"], "title": s["title"], "estimate_min": s["estimate_min"],
-                          "done": bool(s["done"]), "real_seconds": repo.real_seconds_subtask(s["id"])}
+                          "jira_key": s["jira_key"], "done": bool(s["done"]), "real_seconds": repo.real_seconds_subtask(s["id"])}
                          for s in subs],
             "real_seconds": repo.real_seconds(task_id),
             "pomodoros": sum(1 for s in sessions if s["kind"] == "work" and s["completed_phase"]),
             "estimate_sum": repo.subtasks_estimate_sum(task_id),
             "sessions": sessions,
             "distractions": repo.list_distractions(task_id=task_id),
+            "jira": repo.jira_link(task_id),
+            "jira_logged_seconds": repo.jira_logged_seconds(task_id),
         }
 
     def update_task(self, task_id, **fields):
@@ -573,6 +589,299 @@ class Controller:
 
     def test_ai_connection(self, done):
         self._cloud_call(lambda client: client.test_connection(), done)
+
+    # ---- Jira (somente leitura) ---------------------------------------------
+
+    def jira_configured(self):
+        s = self.settings
+        return bool(s["jira_url"].strip() and s["jira_email"].strip() and settings_store.jira_token(s))
+
+    def _jira(self):
+        s = self.settings
+        return self._jira_factory(s["jira_url"], s["jira_email"], settings_store.jira_token(s))
+
+    def _jira_call(self, work, done):
+        """Roda `work(client)` fora da tela. done(resultado, erro) volta no laço principal; nunca usa o SQLite."""
+        if not self.jira_configured():
+            done(None, "Informe o endereço, o e-mail e o token do Jira em Configurações → Jira.")
+            return
+        client = self._jira()
+
+        def job():
+            try:
+                return work(client), None
+            except JiraError as error:
+                return None, str(error)
+            except Exception:
+                log.exception("erro inesperado no Jira")
+                return None, "Não foi possível falar com o Jira agora."
+        self._run_async(job, lambda outcome: done(*outcome))
+
+    def test_jira_connection(self, done):
+        self._jira_call(lambda client: client.test_connection(), done)
+
+    def jira_preview(self, done):
+        """Busca as minhas issues e compara com o que já existe. done(itens, erro). Não grava nada."""
+        jql = jql_for(self.settings["jira_scope"], self.settings["jira_jql"])
+
+        def search(client):
+            issues = client.search(jql)
+            return issues, client.truncated
+
+        def fetched(outcome, error):
+            if error:
+                done(None, error)
+                return
+            issues, truncated = outcome
+            items = jira_importer.Plan(jira_importer.plan_import(
+                self.repo, issues, self.settings["jira_project_groups"], self.settings["jira_epic_groups"]))
+            items.complete = not truncated
+            done(items, None)
+        self._jira_call(search, fetched)
+
+    def jira_import(self, items, group_choices=None):
+        """Grava os itens marcados da pré-visualização. group_choices: {chave do projeto: id do grupo}
+        (vale só para tarefas sem épico: as de épico vão para o grupo dele)."""
+        choices = {k: v for k, v in (group_choices or {}).items() if v}
+        for item in items:
+            if (item.action == jira_importer.NEW and item.kind == jira_importer.TASK and not item.epic
+                    and choices.get(item.issue["project_key"])):
+                item.group_id = choices[item.issue["project_key"]]
+        # Só marca "fora do resultado" se a busca leu tudo; numa leitura cortada, faltar não quer dizer sumir.
+        keys = [i.issue["key"] for i in items] if getattr(items, "complete", True) else None
+        result = jira_importer.apply_import(self.repo, items, all_keys=keys,
+                                            epic_groups=self.settings["jira_epic_groups"])
+        changes = {"jira_epic_groups": result["epic_groups"]}
+        if choices:
+            changes["jira_project_groups"] = {**self.settings["jira_project_groups"], **choices}
+        self.apply_settings(changes)
+        self.tracker.invalidate()
+        self._changed()
+        return result
+
+    def _maybe_auto_sync_jira(self):
+        minutes = self.settings["jira_auto_sync_min"]
+        if not minutes or self._jira_syncing or not self.jira_configured():
+            return
+        last = self._jira_last_attempt
+        if last is None or self._now() - last >= timedelta(minutes=minutes):
+            self.jira_auto_sync()
+
+    def jira_auto_sync(self):
+        """Atualiza o espelho do Jira (só leitura): refaz o que já foi importado e avisa de issues novas.
+
+        Não cria tarefas nem escreve no Jira. Issues novas só entram quando o usuário importa na tela.
+        """
+        if self._jira_syncing:
+            return
+        self._jira_syncing = True
+        self._jira_last_attempt = self._now()
+
+        def finished(items, error):
+            self._jira_syncing = False
+            if error:
+                self.jira_sync_status = {"at": self._now(), "ok": False, "message": error}
+                self._emit("jira-sync")
+                return
+            new = [i for i in items if i.action == jira_importer.NEW]
+            for item in items:
+                if item.action in (jira_importer.NEW, jira_importer.GROUP):
+                    item.selected = False                  # criar tarefa, subtarefa ou grupo é decisão do usuário
+            keys = [i.issue["key"] for i in items] if items.complete else None
+            result = jira_importer.apply_import(self.repo, items, all_keys=keys,
+                                                epic_groups=self.settings["jira_epic_groups"])
+            self.jira_sync_status = {"at": self._now(), "ok": True, "updated": result["updated"], "new": len(new),
+                                     "message": ""}
+            fresh = {i.issue["key"] for i in new} - self._jira_notified_new
+            if fresh:
+                self._jira_notified_new |= fresh
+                self._notify(f"{len(fresh)} issue(s) nova(s) no Jira. Importe em Configurações → Jira.")
+            if result["updated"]:
+                self.tracker.invalidate()
+                self._changed()
+            self._emit("jira-sync")
+        self.jira_preview(finished)
+
+    def jira_resolve_conflict(self, task_id, field, use_jira):
+        """Resolve uma divergência de título ou previsão: usar o valor do Jira ou manter o do usuário."""
+        link = self.repo.jira_link(task_id)
+        if link is None or field not in ("title", "estimate"):
+            raise ValueError("Nada para resolver.")
+        if use_jira:
+            if field == "title" and link["remote_title"]:
+                self.repo.update_task(task_id, title=link["remote_title"])
+            elif field == "estimate":
+                self.repo.update_task(task_id, estimate_min=link["remote_estimate_min"])
+        remaining = [f for f in (link["conflicts"] or "").split(",") if f and f != field]
+        self.repo.save_jira_link(task_id, link["issue_key"], conflicts=",".join(remaining))
+        self.tracker.invalidate()
+        self._changed()
+
+    def jira_link(self, task_id):
+        return self.repo.jira_link(task_id)
+
+    # ---- Jira: enviar o que o usuário confirmar ------------------------------
+    # Fluxo: jira_prepare_* monta a pré-visualização -> a janela mostra -> o usuário confirma
+    # (preview["confirmed"] = True) -> jira_push envia exatamente aquilo. Nada vai ao Jira sem isso.
+
+    def _linked(self, task_id):
+        task, link = self.repo.get_task(task_id), self.repo.jira_link(task_id)
+        if task is None or link is None:
+            raise ValueError("Esta tarefa não está ligada a uma issue do Jira.")
+        return task, link
+
+    def jira_prepare_comment(self, task_id):
+        task, link = self._linked(task_id)
+        return jira_push.comment_preview(task, link)
+
+    def jira_prepare_fields(self, task_id):
+        task, link = self._linked(task_id)
+        return jira_push.fields_preview(task, link)
+
+    def jira_prepare_status(self, task_id, done):
+        """Busca no Jira as mudanças de status possíveis. done(pré-visualização, erro)."""
+        try:
+            task, link = self._linked(task_id)
+        except ValueError as error:
+            done(None, str(error))
+            return
+
+        def fetched(transitions, error):
+            if error:
+                done(None, error)
+                return
+            try:
+                done(jira_push.status_preview(task, link, transitions), None)
+            except ValueError as problem:
+                done(None, str(problem))
+        self._jira_call(lambda client: client.transitions(link["issue_key"]), fetched)
+
+    def jira_menu_info(self, task_id):
+        """O que o menu "Enviar ao Jira" mostra de cada ação (selos e o que está disponível). Só lê o banco."""
+        task, link = self._linked(task_id)
+        try:
+            unlogged = sum(d["seconds"] for d in self.jira_prepare_worklog(task_id)["days"])
+        except ValueError:
+            unlogged = 0
+        try:
+            differences = len(jira_push.fields_preview(task, link)["changes"])
+        except ValueError:
+            differences = 0
+        return {"has_notes": bool((task["notes"] or "").strip()), "unlogged_seconds": unlogged,
+                "field_differences": differences,
+                "local_subtasks": len([s for s in self.repo.list_subtasks(task_id) if not s["jira_key"]])}
+
+    def jira_prepare_worklog(self, task_id):
+        task, link = self._linked(task_id)
+        return jira_push.worklog_preview(task, link, self.repo.unlogged_sessions(task_id))
+
+    def jira_prepare_subtasks(self, task_id, done):
+        """Busca os tipos de sub-tarefa do projeto. done(pré-visualização, erro)."""
+        try:
+            task, link = self._linked(task_id)
+            if not link["project_key"]:
+                raise ValueError("Importe de novo a issue para o app saber o projeto dela.")
+            if not [s for s in self.repo.list_subtasks(task_id) if not s["jira_key"]]:
+                raise ValueError("Todas as subtarefas já estão no Jira, ou não há subtarefas.")
+        except ValueError as error:
+            done(None, str(error))
+            return
+
+        def fetched(types, error):
+            if error:
+                done(None, error)
+                return
+            done(jira_push.subtasks_preview(task, link, self.repo.list_subtasks(task_id), types), None)
+        self._jira_call(lambda client: client.subtask_types(link["project_key"]), fetched)
+
+    def jira_prepare_pull_subtasks(self, task_id, done):
+        """Lê as sub-tarefas que já existem na issue e separa as que ainda não estão aqui. done(lista, erro)."""
+        try:
+            _task, link = self._linked(task_id)
+        except ValueError as error:
+            done(None, str(error))
+            return
+        known = {s["jira_key"] for s in self.repo.list_subtasks(task_id) if s["jira_key"]}
+
+        def fetched(found, error):
+            if error:
+                done(None, error)
+                return
+            new = [f for f in found if f["key"] not in known]
+            done(new, None if new else "Não há sub-tarefas novas no Jira para trazer.")
+        self._jira_call(lambda client: client.subtasks_of(link["issue_key"]), fetched)
+
+    def jira_pull_subtasks(self, task_id, found):
+        """Cria subtarefas locais (já ligadas à sub-tarefa do Jira) para as escolhidas. Só lê do Jira."""
+        for item in found:
+            sub = self.repo.add_subtask(task_id, item["title"])
+            self.repo.set_subtask_jira_key(sub["id"], item["key"])
+            if item["done"]:
+                self.repo.set_subtask_done(sub["id"], True)
+        self.tracker.invalidate()
+        self._changed()
+        return len(found)
+
+    def jira_push(self, preview, done):
+        """Envia a pré-visualização confirmada. done(mensagem, erro). Registra o envio só se der certo."""
+        try:
+            jira_push.validate(preview)
+        except ValueError as error:
+            done(None, str(error))
+            return
+
+        def finished(result, error):
+            if error:
+                done(None, error)
+                return
+            self._after_push(preview, result)
+            if result.get("error"):
+                sent = len(result.get("worklogs") or result.get("created") or [])
+                done(None, f"Enviei {sent} de {result['planned']} para {preview['issue_key']}; "
+                           f"o resto não foi. {result['error']}")
+                return
+            done(f"Enviado para {preview['issue_key']}.", None)
+        self._jira_call(lambda client: jira_push.execute(client, preview), finished)
+
+    def _after_push(self, preview, result):
+        task_id, key = preview["task_id"], preview["issue_key"]
+        link = self.repo.jira_link(task_id)
+        if link:
+            if preview["kind"] == jira_push.STATUS:
+                option = result["option"]
+                self.repo.save_jira_link(task_id, key, remote_status=option["to_status"],
+                                         remote_status_category=option["to_category"])
+            elif preview["kind"] == jira_push.FIELDS:
+                updates = {}
+                if "title" in result["fields"]:
+                    updates["remote_title"] = result["fields"]["title"]
+                if "estimate" in result["fields"]:
+                    updates["remote_estimate_min"] = result["fields"]["estimate"]
+                left = [f for f in (link["conflicts"] or "").split(",") if f and f not in result["fields"]]
+                updates["conflicts"] = ",".join(left)
+                self.repo.save_jira_link(task_id, key, **updates)
+            elif preview["kind"] == jira_push.WORKLOG:
+                for entry in result["worklogs"]:
+                    self.repo.record_worklog(entry["session_ids"], task_id, key, entry["worklog_id"])
+            elif preview["kind"] == jira_push.SUBTASKS:
+                for entry in result["created"]:
+                    self.repo.set_subtask_jira_key(entry["subtask_id"], entry["key"])
+        self.repo.log_jira_push(task_id, key, preview["kind"], result["detail"])
+        self._changed()
+
+    def jira_pushes(self, task_id):
+        return self.repo.list_jira_pushes(task_id)
+
+    def _offer_jira_status(self, task_id):
+        """Avisa a tela que uma tarefa ligada ao Jira foi concluída (ela só pergunta; não envia nada)."""
+        link = self.repo.jira_link(task_id) if task_id else None
+        if link and link["remote_status_category"] != "done":
+            self._emit(f"jira-offer:{task_id}")
+
+    def jira_unlink(self, task_id):
+        """Solta a tarefa da issue. Não mexe no Jira."""
+        self.repo.remove_jira_link(task_id)
+        self._changed()
 
     # ---- configurações --------------------------------------------------
 

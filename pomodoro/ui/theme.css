@@ -542,3 +542,52 @@ label.step-done { background-color: #E3F5EC; color: #2F855A; }
 .leftover-row { background-color: #FAF7F2; border-radius: 12px; padding: 12px 14px; }
 .plan-row { background-color: #FAF7F2; border-radius: 10px; padding: 8px 10px; }
 .plan-card { border: 2px solid #5B5BD6; border-radius: 18px; padding: 20px; background-color: #FFFFFF; }
+
+/* ---- Jira ---------------------------------------------------------------------- */
+
+.jira-strip { background-color: #F1F0FD; border: 1px solid #C9C8F2; border-radius: 12px; padding: 10px 14px; }
+label.key-chip { background-color: #5B5BD6; color: #FFFFFF; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 3px 8px; }
+label.key-chip-soft { background-color: #F1F0FD; color: #5B5BD6; border: 1px solid #C9C8F2; font-size: 10px; font-weight: 700; border-radius: 6px; padding: 1px 7px; }
+label.jira-status { background-color: #FFFFFF; color: #5B5BD6; border: 1px solid #C9C8F2; font-size: 11px; font-weight: 500; border-radius: 12px; padding: 2px 10px; }
+label.badge { font-size: 10px; font-weight: 700; border-radius: 10px; padding: 3px 9px; }
+label.badge-primary { background-color: #ECEBFB; color: #5B5BD6; }
+label.badge-gray { background-color: #F1EDE4; color: #4B5060; }
+label.badge-green { background-color: #E3F5EC; color: #2F855A; }
+label.badge-amber { background-color: #FFF6E0; color: #7A5414; }
+label.tag-epic { background-color: #ECEBFB; color: #5B5BD6; font-size: 9px; font-weight: 700; letter-spacing: 1px; border-radius: 6px; padding: 2px 8px; }
+label.tag-epic-known { background-color: #E3F5EC; color: #2F855A; }
+
+.banner { border-radius: 10px; padding: 12px 14px; font-size: 12px; }
+.banner-amber { background-color: #FFF6E0; border: 1px solid #F2D58A; color: #7A5414; }
+.banner-gray { background-color: #F1EDE4; border: 1px solid #E2DCD1; color: #4B5060; }
+.banner-green { background-color: #E3F5EC; border: 1px solid #BFE6D2; color: #2F855A; }
+.banner-red { background-color: #FDECE7; border: 1px solid #F5C2B5; color: #C2412D; }
+button.banner-btn { background-image: none; background-color: #FFFFFF; border: 1px solid #F2D58A; border-radius: 8px; box-shadow: none; padding: 4px 12px; min-height: 0; color: #7A5414; font-size: 12px; font-weight: 500; }
+button.banner-btn:hover { background-color: #FFF6E0; }
+
+button.menu-item { background-image: none; background-color: transparent; border: none; box-shadow: none; text-shadow: none; outline-style: none; border-radius: 8px; padding: 8px 10px; min-height: 0; color: #1F2430; }
+button.menu-item:hover { background-color: #F1EDE4; }
+button.menu-item:disabled { opacity: 0.5; }
+label.menu-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #A39E94; padding: 6px 10px 2px 10px; }
+button.btn-menu { background-image: none; background-color: #FFFFFF; border: 1px solid #5B5BD6; border-radius: 8px; box-shadow: none; padding: 6px 12px; min-height: 0; color: #5B5BD6; font-size: 12px; font-weight: 700; }
+button.btn-menu:hover, button.btn-menu:checked { background-color: #ECEBFB; }
+
+.day-row { background-color: #FFFFFF; border: 1px solid #E2DCD1; border-radius: 10px; padding: 10px 14px; }
+.day-row-on { background-color: #F1F0FD; border: 1px solid #C9C8F2; }
+.import-list { background-color: #FAF7F2; border: 1px solid #EAE5DB; border-radius: 12px; padding: 14px; }
+.epic-block { background-color: #FFFFFF; border: 1px solid #EAE5DB; border-radius: 10px; }
+.epic-head { padding: 10px 14px; }
+.epic-row { padding: 6px 14px 6px 44px; }
+.changes-block { background-color: #FFF6E0; border: 1px solid #F2D58A; border-radius: 10px; padding: 10px 14px; }
+.settings-section { background-color: #FAF7F2; border: 1px solid #EAE5DB; border-radius: 12px; padding: 16px 18px; }
+.sync-status { background-color: #FFFFFF; border: 1px solid #EAE5DB; border-radius: 10px; padding: 10px 14px; }
+label.conn-ok { background-color: #E3F5EC; color: #2F855A; border: 1px solid #BFE6D2; font-size: 12px; font-weight: 700; border-radius: 13px; padding: 4px 12px; }
+label.conn-off { background-color: #F1EDE4; color: #6B7280; border: 1px solid #E2DCD1; font-size: 12px; font-weight: 700; border-radius: 13px; padding: 4px 12px; }
+label.conn-error { background-color: #FDECE7; color: #C2412D; border: 1px solid #F5C2B5; font-size: 12px; font-weight: 700; border-radius: 13px; padding: 4px 12px; }
+
+/* caixas de marcar e botões de opção dos diálogos (no lugar do laranja do tema do sistema) */
+checkbutton check, radiobutton radio { min-width: 18px; min-height: 18px; background-image: none; background-color: #FFFFFF; border: 1.5px solid #C9C3B8; box-shadow: none; color: #FFFFFF; }
+checkbutton check { border-radius: 5px; }
+radiobutton radio { border-radius: 9px; }
+checkbutton check:checked, checkbutton check:indeterminate, radiobutton radio:checked { background-color: #5B5BD6; border-color: #5B5BD6; color: #FFFFFF; }
+checkbutton check:hover, radiobutton radio:hover { border-color: #5B5BD6; }

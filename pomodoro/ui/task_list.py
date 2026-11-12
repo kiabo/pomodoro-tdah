@@ -129,6 +129,10 @@ class TaskList(Gtk.Box):
             name_parts.append(arrow)
         title_classes = ["muted", "strike"] if task.done else (["bold"] if is_active else [])
         name_parts.append(expand(label(task.title, *title_classes, ellipsize=True)))
+        if task.jira_key:
+            badge = label(task.jira_key, "caption", "text-primary", "bold")
+            badge.set_tooltip_text("Issue do Jira ligada a esta tarefa")
+            name_parts.append(badge)
         if task.subtasks:
             name_parts.append(label(f"{task.subtasks_done}/{len(task.subtasks)} subtarefas", "caption", "muted"))
 

@@ -23,6 +23,11 @@ TASK_FIELDS = {
     "estimate_min", "ai_estimate_min", "status", "position", "postponed_count", "difficulty",
 }
 SUBTASK_FIELDS = {"title", "estimate_min", "done", "position"}
+JIRA_LINK_FIELDS = {
+    "issue_id", "project_key", "url", "remote_title", "remote_description", "remote_status",
+    "remote_status_category", "remote_estimate_min", "remote_updated", "missing", "conflicts",
+    "issue_type", "epic_key",
+}
 
 
 def _row(row):
@@ -529,3 +534,93 @@ class Repository:
                 (day, mood, free_minutes, confirmed_at),
             )
         return self.get_day_review(day)
+
+    # ---- Jira (vínculos somente leitura) --------------------------------
+
+    def jira_link(self, task_id):
+        return _row(self.conn.execute("SELECT * FROM jira_links WHERE task_id = ?", (task_id,)).fetchone())
+
+    def jira_link_by_key(self, issue_key):
+        return _row(self.conn.execute("SELECT * FROM jira_links WHERE issue_key = ?", (issue_key,)).fetchone())
+
+    def list_jira_links(self):
+        return _rows(self.conn.execute("SELECT * FROM jira_links ORDER BY issue_key"))
+
+    def jira_keys(self):
+        """{task_id: chave da issue} de todas as tarefas vinculadas (para a lista mostrar o selo)."""
+        return {r[0]: r[1] for r in self.conn.execute("SELECT task_id, issue_key FROM jira_links")}
+
+    def save_jira_link(self, task_id, issue_key, **fields):
+        """Cria ou atualiza o vínculo da tarefa com a issue."""
+        unknown = set(fields) - JIRA_LINK_FIELDS
+        if unknown:
+            raise ValueError(f"campos desconhecidos para jira_links: {sorted(unknown)}")
+        if self.get_task(task_id) is None:
+            raise KeyError(f"tarefa {task_id} não existe")
+        data = {"issue_key": issue_key, **fields, "synced_at": self._ts()}
+        columns = ", ".join(data)
+        marks = ", ".join("?" * len(data))
+        updates = ", ".join(f"{c} = excluded.{c}" for c in data)
+        with self.conn:
+            self.conn.execute(
+                f"INSERT INTO jira_links(task_id, {columns}) VALUES (?, {marks})"
+                f" ON CONFLICT(task_id) DO UPDATE SET {updates}",
+                (task_id, *data.values()),
+            )
+        return self.jira_link(task_id)
+
+    def mark_jira_missing(self, present_keys):
+        """Marca como 'fora do resultado' os vínculos cuja issue não veio na última busca (e desmarca os que voltaram)."""
+        present = set(present_keys)
+        with self.conn:
+            for link in self.list_jira_links():
+                missing = int(link["issue_key"] not in present)
+                if missing != link["missing"]:
+                    self.conn.execute("UPDATE jira_links SET missing = ? WHERE task_id = ?",
+                                      (missing, link["task_id"]))
+
+    def remove_jira_link(self, task_id):
+        """Solta a tarefa da issue; a tarefa e tudo o que é dela continuam."""
+        with self.conn:
+            self.conn.execute("DELETE FROM jira_links WHERE task_id = ?", (task_id,))
+
+    def log_jira_push(self, task_id, issue_key, kind, detail=""):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO jira_pushes(task_id, issue_key, kind, detail, sent_at) VALUES (?, ?, ?, ?, ?)",
+                (task_id, issue_key, kind, detail, self._ts()))
+
+    def list_jira_pushes(self, task_id):
+        return _rows(self.conn.execute(
+            "SELECT * FROM jira_pushes WHERE task_id = ? ORDER BY id DESC", (task_id,)))
+
+    # ---- Jira: worklog e subtarefas ---------------------------------------
+
+    def unlogged_sessions(self, task_id):
+        """Sessões de tempo real (foco e ajustes) já encerradas que ainda não foram lançadas no Jira."""
+        return _rows(self.conn.execute(
+            "SELECT s.* FROM sessions s WHERE s.task_id = ? AND s.kind IN ('work', 'manual')"
+            " AND s.ended_at IS NOT NULL AND s.id NOT IN (SELECT session_id FROM jira_worklogs)"
+            " ORDER BY s.started_at, s.id", (task_id,)))
+
+    def record_worklog(self, session_ids, task_id, issue_key, worklog_id):
+        with self.conn:
+            for session_id in session_ids:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO jira_worklogs(session_id, task_id, issue_key, worklog_id, logged_at)"
+                    " VALUES (?, ?, ?, ?, ?)", (session_id, task_id, issue_key, str(worklog_id), self._ts()))
+
+    def jira_logged_seconds(self, task_id):
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(s.seconds), 0) FROM sessions s JOIN jira_worklogs w ON w.session_id = s.id"
+            " WHERE w.task_id = ?", (task_id,)).fetchone()
+        return row[0]
+
+    def subtask_by_jira_key(self, issue_key):
+        return _row(self.conn.execute("SELECT * FROM subtasks WHERE jira_key = ?", (issue_key,)).fetchone())
+
+    def set_subtask_jira_key(self, subtask_id, issue_key):
+        with self.conn:
+            cur = self.conn.execute("UPDATE subtasks SET jira_key = ? WHERE id = ?", (issue_key, subtask_id))
+        if cur.rowcount == 0:
+            raise KeyError(f"subtarefa {subtask_id} não existe")

@@ -115,6 +115,8 @@ class FocusCard(Gtk.Box):
         self.title.set_text(title)
         self.title.set_visible("current_task" in fields)
         parent = ctx.get("task_title") if ctx.get("subtask_title") else ""
+        if ctx.get("jira_key"):                      # o selo da issue do Jira, na linha abaixo do título
+            parent = f"{ctx['jira_key']} · {parent}" if parent else ctx["jira_key"]
         self.parent.set_text(parent or "")
         self.parent.set_visible(bool(parent) and "current_task" in fields)
         total = max(timer.phase_total, 1)

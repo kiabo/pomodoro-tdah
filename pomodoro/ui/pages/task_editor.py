@@ -19,7 +19,7 @@ from ..format import (describe_day, estimate_note, format_minutes, format_real, 
 from ..layout import button, expand, flow, hbox, label, make_check, vbox
 from ..ordering import reorder_ids
 from ..theme import style
-from ..widgets import ChoiceGroup, DatePicker, GroupDot, Select, TimeStepper
+from ..widgets import ChoiceGroup, DatePicker, GroupDot, JiraMenuButton, Select, TimeStepper, banner, key_chip
 
 ENERGY_ITEMS = [("low", "Baixa"), ("medium", "Média"), ("high", "Alta")]
 LIST_WIDTH = 260
@@ -62,10 +62,12 @@ class _SubtaskRow(Gtk.EventBox):
         self.play = button("▶", "btn-ghost", tooltip="Focar nesta subtarefa")
         self.play.set_sensitive(sub is not None)
         self.play.connect("clicked", lambda *_: editor.on_focus_subtask(self))
+        self.jira_badge = label(sub["jira_key"] if sub and sub.get("jira_key") else "", "caption", "text-primary", "bold")
+        self.jira_badge.set_tooltip_text("Sub-tarefa ligada a esta no Jira")
         remove = button("✕", "btn-ghost", tooltip="Excluir subtarefa")
         remove.connect("clicked", lambda *_: editor.on_delete_subtask(self))
 
-        row = hbox(self.handle, self.check, self.title_entry, self.time_entry, self.real_label, self.play, remove,
+        row = hbox(self.handle, self.check, self.title_entry, self.jira_badge, self.time_entry, self.real_label, self.play, remove,
                    spacing=10, classes=("sub-row-active",) if active else ())
         row.set_margin_start(4)
         self.add(row)
@@ -171,6 +173,7 @@ class TaskEditorPage(Gtk.Box):
     def _build_editor_scroll(self):
         self.editor = vbox(spacing=18, classes=("card", "card-lg"))
         self.editor.pack_start(self._build_title_row(), False, True, 0)
+        self.editor.pack_start(self._build_jira_card(), False, True, 0)
         self.editor.pack_start(self._build_notice(), False, True, 0)
         self.editor.pack_start(self._build_fields_row(), False, True, 0)
         self.editor.pack_start(self._build_time_cards(), False, True, 0)
@@ -219,19 +222,73 @@ class TaskEditorPage(Gtk.Box):
                     field("Repetir", self.repeat_select), field("Energia necessária", self.energy),
                     max_per_line=4)
 
+    def _build_jira_card(self):
+        """Faixa fina com a issue do Jira (D8): chave, tipo, épico, status e UM menu "Enviar ao Jira".
+
+        Nada daqui vai ao Jira sem o usuário escolher uma ação do menu e confirmar na janela.
+        """
+        self.jira_key_label = key_chip("")
+        self.jira_type_label = label("", "small", "text2", "bold")
+        self.jira_epic_label = label("", "small", "muted", ellipsize=True)
+        self.jira_status_label = label("", "jira-status")
+        self.jira_status_label.set_valign(Gtk.Align.CENTER)
+        self.jira_open = button("Abrir no Jira ↗", "btn-link", on_click=self._on_jira_open)
+        self.jira_menu = JiraMenuButton("Enviar ao Jira")
+        head = hbox(self.jira_key_label, self.jira_type_label, expand(self.jira_epic_label), self.jira_status_label,
+                    self.jira_open, self.jira_menu, spacing=10)
+
+        self.jira_desc_toggle = button("▸ Ver descrição no Jira", "btn-link", on_click=self._toggle_jira_description)
+        self.jira_last_push = label("", "caption", "faint", ellipsize=True)
+        self.jira_unlink = button("Desvincular", "btn-link", on_click=self._on_jira_unlink)
+        foot = hbox(self.jira_desc_toggle, expand(self.jira_last_push), self.jira_unlink, spacing=10)
+        strip = vbox(head, foot, spacing=6, classes=("jira-strip",))
+
+        self.jira_description = Gtk.TextView()
+        style(self.jira_description, "notes-view")
+        self.jira_description.set_editable(False)
+        self.jira_description.set_cursor_visible(False)
+        self.jira_description.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.jira_description_scroll = Gtk.ScrolledWindow()
+        self.jira_description_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.jira_description_scroll.set_min_content_height(40)
+        self.jira_description_scroll.set_max_content_height(140)
+        self.jira_description_scroll.set_propagate_natural_height(True)
+        self.jira_description_scroll.add(self.jira_description)
+        self.jira_description_revealer = Gtk.Revealer()
+        self.jira_description_revealer.add(vbox(self.jira_description_scroll, classes=("card-soft",)))
+
+        self.jira_conflicts_box = vbox(spacing=8)          # avisos: divergência e "saiu da sua lista"
+        self.jira_card = vbox(strip, self.jira_description_revealer, self.jira_conflicts_box, spacing=8)
+        self.jira_card.show_all()
+        self.jira_card.set_no_show_all(True)
+        self.jira_card.hide()
+        return self.jira_card
+
+    def _toggle_jira_description(self):
+        revealed = not self.jira_description_revealer.get_reveal_child()
+        self.jira_description_revealer.set_reveal_child(revealed)
+        self.jira_desc_toggle.set_label("▾ Ocultar descrição" if revealed else "▸ Ver descrição no Jira")
+
     def _build_time_cards(self):
         self.stepper = TimeStepper(0, step=5)
         self.stepper.connect("value-changed", lambda _s, minutes: self._on_estimate_changed(minutes))
         self.estimate_note_label = label("", "caption", "muted", wrap=True)
         self.estimate_note_label.set_max_width_chars(26)
+        self.jira_estimate_label = label("", "caption", "text-primary")
+        self.jira_use_estimate = button("Usar", "btn-link", on_click=self._on_jira_use_estimate)
+        self.jira_estimate_row = hbox(self.jira_estimate_label, self.jira_use_estimate, spacing=6)
+        self.jira_estimate_row.set_no_show_all(True)
         planned = vbox(label("⏱ PREVISTO (sua estimativa)", "eyebrow", "text-primary"), self.stepper,
-                       self.estimate_note_label, spacing=8, classes=("card", "card-primary"))
+                       self.estimate_note_label, self.jira_estimate_row, spacing=8, classes=("card", "card-primary"))
 
         self.real_value = label("0m", "stat-value")
         self.real_note = label("", "caption", "text-green-dark")
         adjust = button("Ajustar manualmente", "btn-link", on_click=self._on_adjust)
+        self.jira_logged_label = label("", "caption", "text-primary", "bold")
+        self.jira_logged_label.set_no_show_all(True)
         real = vbox(label("◷ REAL (cronometrado)", "eyebrow", "text-green-dark"), self.real_value,
-                    self.real_note, hbox(adjust, spacing=0), spacing=6, classes=("card", "card-green"))
+                    self.real_note, hbox(adjust, spacing=0), self.jira_logged_label, spacing=6,
+                    classes=("card", "card-green"))
 
         self.ai_value = label("—", "stat-value", "text-amber-dark")
         self.ai_note = label("", "caption", "text-amber-dark", wrap=True)
@@ -316,6 +373,177 @@ class TaskEditorPage(Gtk.Box):
             self._loading = False
         self._fill_derived(detail)
         self._fill_subtasks(detail)
+        self._fill_jira(detail)
+
+    def _fill_jira(self, detail):
+        link = detail.get("jira")
+        self.jira_card.set_visible(bool(link))
+        if not link:
+            self.jira_estimate_row.set_visible(False)
+            self.jira_logged_label.set_visible(False)
+            return
+        task = detail["task"]
+        self.jira_key_label.set_text(link["issue_key"])
+        self.jira_type_label.set_text(link["issue_type"])
+        self.jira_epic_label.set_text(f"· épico {link['epic_key']}" if link["epic_key"] else "")
+        self.jira_status_label.set_text(link["remote_status"])
+        self.jira_status_label.set_visible(bool(link["remote_status"]))
+        self.jira_open.set_sensitive(bool(link["url"]))
+        has_description = bool(link["remote_description"])
+        self.jira_description.get_buffer().set_text(link["remote_description"] or "")
+        self.jira_desc_toggle.set_visible(has_description)
+        if not has_description:
+            self.jira_description_revealer.set_reveal_child(False)
+        pushes = self.controller.jira_pushes(task["id"])
+        self.jira_last_push.set_text(
+            f"Último envio: {pushes[0]['detail']} · {pushes[0]['sent_at'].replace('T', ' ')[:16]}" if pushes
+            else "Nada é enviado sem você confirmar")
+        self._fill_jira_menu(task["id"], link)
+        self._fill_jira_conflicts(link, task)
+        self._fill_jira_numbers(detail, link, task)
+
+    def _fill_jira_menu(self, task_id, link):
+        info = self.controller.jira_menu_info(task_id)
+        differences = info["field_differences"]
+        self.jira_menu.set_sections([
+            ("ENVIAR AGORA", [
+                {"title": "Comentar com as minhas notas",
+                 "sub": "Entra como comentário novo; não altera nada" if info["has_notes"]
+                 else "Escreva notas na tarefa para poder enviar",
+                 "callback": self._on_jira_comment, "sensitive": info["has_notes"]},
+                {"title": "Atualizar título e previsão", "sub": "Você escolhe o que enviar",
+                 "callback": self._on_jira_fields,
+                 "badge": f"{differences} diferença(s)" if differences else None, "badge_kind": "amber"},
+                {"title": "Mudar status…", "sub": f"Hoje no Jira: {link['remote_status'] or '—'}",
+                 "callback": self._on_jira_status},
+            ]),
+            ("TEMPO E SUBTAREFAS", [
+                {"title": "Lançar tempo", "sub": "Um lançamento por dia, você marca os dias",
+                 "callback": self._on_jira_worklog,
+                 "badge": f"{format_real(info['unlogged_seconds'])} novos" if info["unlogged_seconds"] >= 60 else None},
+                {"title": "Criar subtarefas no Jira", "sub": "Só as que você marcar; o resto fica local",
+                 "callback": self._on_jira_subtasks,
+                 "badge": f"{info['local_subtasks']} locais" if info["local_subtasks"] else None,
+                 "badge_kind": "gray"},
+                {"title": "Trazer subtarefas de lá", "sub": "Só leitura: vira subtarefa local",
+                 "callback": self._on_jira_pull},
+            ]),
+        ])
+
+    def _fill_jira_numbers(self, detail, link, task):
+        """Linhas do Jira dentro dos cartões PREVISTO e REAL."""
+        estimate = link["remote_estimate_min"]
+        self.jira_estimate_label.set_text(f"Previsão no Jira: {format_minutes(estimate)}" if estimate
+                                          else "Sem previsão no Jira")
+        self.jira_estimate_label.show()
+        self.jira_use_estimate.set_visible(bool(estimate) and estimate != task["estimate_min"])
+        self.jira_estimate_row.set_visible(bool(estimate))
+        logged = detail.get("jira_logged_seconds", 0)
+        self.jira_logged_label.set_text(f"No Jira: {format_real(logged)} de {format_real(detail['real_seconds'])} "
+                                        f"lançados" if logged else "")
+        self.jira_logged_label.set_visible(bool(logged))
+
+    def _fill_jira_conflicts(self, link, task):
+        """Avisos sob a faixa: divergência (o Jira mudou e você também) e issue que saiu da sua lista."""
+        for child in self.jira_conflicts_box.get_children():
+            self.jira_conflicts_box.remove(child)
+            child.destroy()
+        names = {"title": ("título", f"“{link['remote_title']}”"),
+                 "estimate": ("previsão", format_minutes(link["remote_estimate_min"]) if link["remote_estimate_min"]
+                              else "sem previsão")}
+        for field in filter(None, (link["conflicts"] or "").split(",")):
+            if field not in names:
+                continue
+            name, remote = names[field]
+            self.jira_conflicts_box.pack_start(banner(
+                "amber", f"O {name} mudou no Jira",
+                f"No Jira agora: {remote}. Você também tinha mudado aqui, então o seu foi mantido.",
+                [("Usar o do Jira", lambda f=field: self._resolve_conflict(f, True)),
+                 ("Manter o meu", lambda f=field: self._resolve_conflict(f, False))]), False, True, 0)
+        if link["missing"]:
+            self.jira_conflicts_box.pack_start(banner(
+                "gray", "Esta issue saiu da sua lista do Jira",
+                "Foi fechada ou passou para outra pessoa. A tarefa continua aqui com tudo o que você organizou."),
+                False, True, 0)
+        self.jira_conflicts_box.show_all()
+
+    def _resolve_conflict(self, field, use_jira):
+        self._try(lambda: self.controller.jira_resolve_conflict(self.task_id, field, use_jira), full=True)
+
+    def _on_jira_open(self):
+        link = (self._detail or {}).get("jira")
+        if link and link["url"]:
+            Gtk.show_uri_on_window(self.get_toplevel(), link["url"], Gdk.CURRENT_TIME)
+
+    def _on_jira_use_estimate(self):
+        link = (self._detail or {}).get("jira")
+        if link and link["remote_estimate_min"]:
+            self._try(lambda: self.controller.update_task(self.task_id, estimate_min=link["remote_estimate_min"]),
+                      full=True)
+
+    def _after_jira_push(self, message, error):
+        self.notice(error or message, error=bool(error))
+        detail = self.controller.task_detail(self.task_id) if self.task_id else None
+        if detail:
+            self._fill_jira(detail)            # só o cartão e as subtarefas: não mexe nos outros campos
+            self._fill_subtasks(detail)
+
+    def _send_to_jira(self, preview):
+        from ..dialogs.jira_push import send
+        send(self.get_toplevel(), self.controller, preview, self._after_jira_push)
+
+    def _on_jira_comment(self):
+        try:
+            self._send_to_jira(self.controller.jira_prepare_comment(self.task_id))
+        except ValueError as error:
+            self.notice(str(error), error=True)
+
+    def _on_jira_fields(self):
+        try:
+            self._send_to_jira(self.controller.jira_prepare_fields(self.task_id))
+        except ValueError as error:
+            self.notice(str(error), error=True)
+
+    def _on_jira_worklog(self):
+        try:
+            self._send_to_jira(self.controller.jira_prepare_worklog(self.task_id))
+        except ValueError as error:
+            self.notice(str(error), error=True)
+
+    def _on_jira_subtasks(self):
+        def ready(preview, error):
+            if error:
+                self.notice(error, error=True)
+            else:
+                self._send_to_jira(preview)
+        self.controller.jira_prepare_subtasks(self.task_id, ready)
+
+    def _on_jira_pull(self):
+        from ..dialogs.jira_push import ask_pull
+
+        def ready(found, error):
+            if error:
+                self.notice(error, error=not found)
+                return
+            chosen = ask_pull(self.get_toplevel(), self._detail["jira"]["issue_key"], found)
+            if chosen:
+                count = self.controller.jira_pull_subtasks(self.task_id, chosen)
+                self.notice(f"{count} subtarefa(s) trazida(s) do Jira.")
+        self.controller.jira_prepare_pull_subtasks(self.task_id, ready)
+
+    def _on_jira_status(self):
+        def ready(preview, error):
+            if error:
+                self.notice(error, error=True)
+            else:
+                self._send_to_jira(preview)
+        self.controller.jira_prepare_status(self.task_id, ready)
+
+    def _on_jira_unlink(self):
+        link = (self._detail or {}).get("jira")
+        if link and dialogs.confirm(self.get_toplevel(), f"Desvincular de {link['issue_key']}?",
+                                    "A tarefa e seus passos continuam aqui. Nada muda no Jira.", yes="Desvincular"):
+            self.controller.jira_unlink(self.task_id)
 
     def _set_repeat_options(self, day, rule):
         options = recurrence.options_for(day)
@@ -484,9 +712,10 @@ class TaskEditorPage(Gtk.Box):
 
     def notice(self, message, error=False):
         classes = self.notice_label.get_style_context()
-        classes.remove_class("text-danger")
-        classes.remove_class("text-green-dark")
-        classes.add_class("text-danger" if error else "text-green-dark")
+        for name in ("text-danger", "text-green-dark", "banner", "banner-red", "banner-green"):
+            classes.remove_class(name)
+        for name in (("text-danger", "banner", "banner-red") if error else ("text-green-dark", "banner", "banner-green")):
+            classes.add_class(name)
         self.notice_label.set_text(message)
         self.notice_label.show()
         if self._notice_source is not None:

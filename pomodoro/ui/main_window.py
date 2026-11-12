@@ -154,6 +154,12 @@ class MainWindow(Gtk.Window):
     # ---- atualização ----------------------------------------------------
 
     def _on_event(self, kind):
+        if kind.startswith("jira-offer:"):
+            GLib.idle_add(self.offer_jira_status, kind.partition(":")[2])      # fora do laço do evento
+            return
+        if kind == "jira-sync":
+            self.settings_page.refresh_jira_status()
+            return
         if not self.get_visible():
             return                      # escondida na bandeja: refaz tudo ao reaparecer ("map")
         page = self.stack.get_visible_child_name()
@@ -169,6 +175,25 @@ class MainWindow(Gtk.Window):
                 self.analysis.on_data(kind)
             elif page == "plan" and kind in ("data", "day"):
                 self.plan.on_data(kind)
+
+    def offer_jira_status(self, task_id):
+        """Depois de concluir uma tarefa ligada ao Jira, pergunta se quer mudar o status lá. Não envia nada sozinho."""
+        link = self.controller.jira_link(task_id)
+        if not link or not self.get_visible():
+            return False
+        if dialogs.confirm(self, f"Mover {link['issue_key']} no Jira também?",
+                           "Você concluiu a tarefa aqui. Se disser não, nada muda no Jira.", yes="Escolher status…"):
+            from .dialogs.jira_push import send
+
+            def ready(preview, error):
+                if error:
+                    dialogs.confirm(self, "Não foi possível", error, yes="Ok")
+                else:
+                    send(self, self.controller, preview,
+                         lambda message, problem: self.editor.notice(problem or message, error=bool(problem))
+                         if self.stack.get_visible_child_name() == "task" else None)
+            self.controller.jira_prepare_status(task_id, ready)
+        return False
 
     def refresh_all(self):
         self.refresh_tasks()

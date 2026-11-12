@@ -6,7 +6,8 @@ from datetime import date
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gtk
 
 from ..format import cycle_summary
 from ..layout import button, expand, flow, hbox, label, vbox
@@ -16,10 +17,11 @@ from ...ai.claude_client import MODELS
 from ...settings import COMPACT_FIELDS
 
 TABS = [("focus", "Pomodoro e foco"), ("compact", "Modo compacto"), ("sound", "Sons e notificações"),
-        ("ai", "IA e dados")]
+        ("jira", "Jira"), ("ai", "IA e dados")]
 END_SOUNDS = [("complete", "Sino suave"), ("message", "Mensagem"), ("bell", "Sino"),
               ("alarm-clock-elapsed", "Despertador"), ("", "Mudo")]
 THRESHOLDS = [(125, "125%"), (150, "150%"), (200, "200%")]
+AUTO_SYNC_CHOICES = [(0, "Desligado"), (15, "15 min"), (30, "30 min"), (60, "1 hora")]
 COMPACT_FIELD_NAMES = {
     "remaining": "Tempo restante", "current_task": "Tarefa atual", "next_break": "Próximo intervalo",
     "progress": "Barra de progresso", "estimate_vs_real": "Previsto vs real",
@@ -94,6 +96,7 @@ class SettingsPage(Gtk.Box):
         self.stack.add_named(self._wrap(self._build_focus_tab()), "focus")
         self.stack.add_named(self._wrap(self._build_compact_tab()), "compact")
         self.stack.add_named(self._wrap(self._build_sound_tab()), "sound")
+        self.stack.add_named(self._wrap(self._build_jira_tab()), "jira")
         self.stack.add_named(self._wrap(self._build_ai_tab()), "ai")
         self.stack.show_all()
         self.stack.set_visible_child_name("focus")
@@ -291,6 +294,178 @@ class SettingsPage(Gtk.Box):
             width=460,
         )
         return flow(card, max_per_line=1, homogeneous=False, halign=Gtk.Align.START)
+
+    # ---- aba: Jira --------------------------------------------------------------
+
+    def _jira_entry(self, key, placeholder, secret=False, width=24):
+        entry = style(Gtk.Entry(), "input")
+        entry.set_placeholder_text(placeholder)
+        entry.set_text(self.settings[key])
+        entry.set_width_chars(width)
+        entry.set_visibility(not secret)
+        entry.set_hexpand(True)
+        entry.connect("activate", lambda *_: self._commit_jira(key, entry))
+        entry.connect("focus-out-event", lambda *_: self._commit_jira(key, entry) or False)
+        return entry
+
+    def _commit_jira(self, key, entry):
+        text = entry.get_text().strip()
+        if text != self.settings[key]:
+            self._apply({key: text})
+
+    @staticmethod
+    def _aligned_head(title, like):
+        """Cabeçalho de campo com a mesma altura do que tem um link ao lado (para alinhar os campos)."""
+        ghost = button(like.get_label(), "btn-link")
+        ghost.set_opacity(0)
+        ghost.set_sensitive(False)
+        return hbox(label(title, "small", "text2", "bold"), expand(Gtk.Box()), ghost)
+
+    @staticmethod
+    def _field(title, widget, hint=None):
+        return vbox(label(title, "small", "text2", "bold"), widget, label(hint, "caption", "muted", wrap=True) if hint
+                    else None, spacing=5)
+
+    def _build_jira_tab(self):
+        s = self.settings
+        self.jira_entries = {
+            "jira_url": self._jira_entry("jira_url", "https://empresa.atlassian.net", width=40),
+            "jira_email": self._jira_entry("jira_email", "voce@empresa.com"),
+            "jira_token": self._jira_entry("jira_token", "token da API", secret=True),
+            "jira_jql": self._jira_entry("jira_jql", "ex.: project = ABC AND resolution = Unresolved", width=40),
+        }
+        self.jira_pill = label("", "conn-off")
+        self.jira_pill.set_halign(Gtk.Align.END)
+        self.jira_status = label("", "small", "muted", wrap=True)
+        self.jira_test_button = button("Testar conexão", "btn-secondary", on_click=self._on_jira_test)
+        self.jira_import_button = button("Importar issues…", "btn-primary", on_click=self._on_jira_import)
+        token_help = button("Como criar um token ↗", "btn-link", on_click=self._open_token_help)
+        token_head = hbox(label("Token da API", "small", "text2", "bold"), expand(Gtk.Box()), token_help)
+
+        connection = vbox(
+            label("CONEXÃO", "eyebrow"),
+            self._field("Endereço", self.jira_entries["jira_url"]),
+            hbox(expand(vbox(self._aligned_head("E-mail da conta Atlassian", token_help), self.jira_entries["jira_email"],
+                             spacing=5)),
+                 expand(vbox(token_head, self.jira_entries["jira_token"], spacing=5)), spacing=12,
+                 valign=Gtk.Align.START),
+            hbox(self.jira_test_button, spacing=0),
+            self.jira_status, spacing=12, classes=("settings-section",))
+
+        self.jira_scope = ChoiceGroup(
+            [("mine", "Minhas + criadas por mim + sem responsável"), ("assigned", "Só atribuídas a mim"),
+             ("custom", "Minha busca (JQL)…")], s["jira_scope"], "segmented")
+        self.jira_scope.set_homogeneous(False)
+        self.jira_scope.connect("changed", lambda _g, value: self._on_jira_scope(value))
+        self.jira_jql_field = self._field("Sua busca em JQL", self.jira_entries["jira_jql"],
+                                          "Vazio volta para as suas, criadas por você e sem responsável.")
+        self.jira_jql_field.set_no_show_all(True)
+        self.jira_jql_field.set_visible(s["jira_scope"] == "custom")
+        scope = vbox(
+            label("O QUE TRAZER", "eyebrow"), self.jira_scope, self.jira_jql_field,
+            label("Cada épico vira um grupo no app; sub-tarefas do Jira viram subtarefas locais. "
+                  "Muita coisa no Jira fica sem responsável, por isso a primeira opção as inclui.",
+                  "caption", "muted", wrap=True), spacing=12, classes=("settings-section",))
+
+        self.jira_auto_group = ChoiceGroup(AUTO_SYNC_CHOICES, self._closest_auto_sync(s["jira_auto_sync_min"]),
+                                           "segmented")
+        self.jira_auto_group.set_halign(Gtk.Align.START)
+        self.jira_auto_group.set_homogeneous(False)
+        self.jira_auto_group.connect("changed", lambda _g, value: self._apply({"jira_auto_sync_min": value}))
+        self.jira_sync_label = label("", "small", "text2", wrap=True)
+        sync_row = hbox(expand(self.jira_sync_label), self.jira_import_button, spacing=10, classes=("sync-status",))
+        refresh = vbox(
+            label("ATUALIZAR SOZINHO (SÓ LEITURA)", "eyebrow"), self.jira_auto_group,
+            label("Relê o Jira e atualiza o que você já importou. Issues novas só avisam; nada é escrito no Jira.",
+                  "caption", "muted", wrap=True), sync_row, spacing=12, classes=("settings-section",))
+
+        card = vbox(
+            hbox(expand(label("Jira", "title-lg")), self.jira_pill),
+            label("O Jira é um espelho: o app lê as suas issues e você organiza do seu jeito. "
+                  "Nada é enviado sem você pedir e confirmar.", "text2", wrap=True),
+            connection, scope, refresh, spacing=18, classes=("card", "card-lg"))
+        card.set_size_request(700, -1)
+        card.set_halign(Gtk.Align.START)
+        card.set_valign(Gtk.Align.START)
+        self._set_jira_pill()
+        self.refresh_jira_status()
+        return card
+
+    def _set_jira_pill(self, name=None, error=False):
+        context = self.jira_pill.get_style_context()
+        for cls in ("conn-ok", "conn-off", "conn-error"):
+            context.remove_class(cls)
+        if name:
+            context.add_class("conn-ok")
+            self.jira_pill.set_text(f"● Conectado como {name}")
+        elif error:
+            context.add_class("conn-error")
+            self.jira_pill.set_text("● Não conectou")
+        else:
+            context.add_class("conn-off")
+            self.jira_pill.set_text("● Ainda não testada" if self.controller.jira_configured() else "● Não configurada")
+
+    def _on_jira_scope(self, value):
+        self.jira_jql_field.set_visible(value == "custom")
+        self._apply({"jira_scope": value})
+
+    def _open_token_help(self):
+        Gtk.show_uri_on_window(self.get_toplevel(), "https://id.atlassian.com/manage-profile/security/api-tokens",
+                               Gdk.CURRENT_TIME)
+
+    @staticmethod
+    def _closest_auto_sync(minutes):
+        return min((value for value, _t in AUTO_SYNC_CHOICES), key=lambda value: abs(value - minutes))
+
+    def refresh_jira_status(self):
+        """Mostra o resultado da última atualização automática do Jira."""
+        status = self.controller.jira_sync_status
+        if not status:
+            self.jira_sync_label.set_text("Ainda não atualizou. Use “Importar issues…” para a primeira vez.")
+        elif not status["ok"]:
+            self.jira_sync_label.set_text(f"Última tentativa às {status['at'].strftime('%H:%M')} falhou: {status['message']}")
+        else:
+            news = f" · {status['new']} issue(s) nova(s) esperando" if status["new"] else ""
+            self.jira_sync_label.set_text(
+                f"Atualizado às {status['at'].strftime('%H:%M')} · {status['updated']} tarefa(s) atualizada(s){news}")
+
+    def _commit_jira_all(self):
+        for key, entry in self.jira_entries.items():
+            self._commit_jira(key, entry)
+
+    def _jira_busy(self, busy, text=""):
+        self.jira_test_button.set_sensitive(not busy)
+        self.jira_import_button.set_sensitive(not busy)
+        self.jira_status.set_text(text)
+
+    def _on_jira_test(self):
+        self._commit_jira_all()
+        self._jira_busy(True, "Testando…")
+
+        def finished(name, error):
+            self._jira_busy(False, error or "")
+            self._set_jira_pill(name=name, error=bool(error))
+
+        self.controller.test_jira_connection(finished)
+
+    def _on_jira_import(self):
+        self._commit_jira_all()
+        self._jira_busy(True, "Buscando suas issues…")
+
+        def finished(items, error):
+            self._jira_busy(False, error or "")
+            if error:
+                return
+            from ..dialogs.jira_import import show_import
+            result = show_import(self.get_toplevel(), self.controller, items)
+            if result is not None:
+                text = (f"{result['created']} tarefas, {result['subtasks']} subtarefas e {result['groups']} grupos "
+                        f"importados; {result['updated']} atualizadas.")
+                if result["skipped"]:
+                    text += " Não entraram: " + "; ".join(f"{k} ({why})" for k, why in result["skipped"]) + "."
+                self.jira_status.set_text(text)
+
+        self.controller.jira_preview(finished)
 
     # ---- aba: IA e dados --------------------------------------------------------
 
