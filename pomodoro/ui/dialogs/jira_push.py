@@ -1,4 +1,8 @@
-"""Janela de confirmação de um envio ao Jira: mostra exatamente o que vai e só envia se o usuário confirmar."""
+"""Janela de confirmação de um envio ao Jira (D10): mostra exatamente o que vai e só envia se o usuário confirmar.
+
+Mesmo molde para todos os envios: título + chave da issue, uma explicação curta, o conteúdo, e o rodapé
+"Só isso será enviado, e só agora" com Cancelar e Enviar ao Jira (o padrão é Cancelar: Enter não envia).
+"""
 
 import gi
 
@@ -7,19 +11,42 @@ from gi.repository import Gtk
 
 from ...jira import push
 from ..format import format_real
-from ..layout import button, expand, hbox, label, vbox
+from ..layout import expand, hbox, label, vbox
 from ..theme import style, themed_window
+from ..widgets import key_chip
 
 TITLES = {push.COMMENT: "Enviar notas como comentário", push.STATUS: "Mudar o status no Jira",
-          push.FIELDS: "Atualizar o Jira com os dados daqui", push.WORKLOG: "Lançar o tempo real no Jira",
+          push.FIELDS: "Atualizar o Jira com os dados daqui", push.WORKLOG: "Lançar tempo no Jira",
           push.SUBTASKS: "Criar subtarefas no Jira"}
 EXPLAIN = {
     push.COMMENT: "Entra como um comentário novo. Nada do que já existe na issue é alterado.",
     push.STATUS: "Escolha o novo status. Só as mudanças que o fluxo do seu projeto permite aparecem.",
     push.FIELDS: "Marque o que deve ser atualizado na issue. O que ficar desmarcado não é enviado.",
-    push.WORKLOG: "Um lançamento por dia, com o tempo cronometrado aqui. O que for lançado não será lançado de novo.",
-    push.SUBTASKS: "Cada subtarefa marcada vira uma sub-tarefa nova na issue. As que ficarem desmarcadas continuam só aqui.",
+    push.WORKLOG: "Um lançamento por dia, com o tempo cronometrado aqui. Marque os dias que quer enviar.",
+    push.SUBTASKS: "Cada subtarefa marcada vira uma sub-tarefa nova na issue. As desmarcadas continuam só aqui.",
 }
+WEEKDAYS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro",
+          "novembro", "dezembro"]
+
+
+def day_title(iso_day):
+    """'2026-11-09' -> 'Segunda, 9 de novembro'."""
+    from datetime import date
+    day = date.fromisoformat(iso_day)
+    return f"{WEEKDAYS[day.weekday()]}, {day.day} de {MONTHS[day.month - 1]}"
+
+
+def _checked_row(check, content, trailing=None):
+    """Linha em cartão: o cartão ganha destaque quando está marcado."""
+    row = hbox(check, expand(content), trailing, spacing=12, classes=("day-row",))
+
+    def refresh(*_):
+        context = row.get_style_context()
+        context.add_class("day-row-on") if check.get_active() else context.remove_class("day-row-on")
+    check.connect("toggled", refresh)
+    refresh()
+    return row
 
 
 class JiraPushDialog(Gtk.Dialog):
@@ -32,20 +59,21 @@ class JiraPushDialog(Gtk.Dialog):
         self.day_checks = []             # (caixa, dia) no lançamento de tempo
         self.sub_checks = []             # (caixa, subtarefa) na criação de subtarefas
         self.type_radios = []            # (botão, tipo) do tipo de sub-tarefa
-        self.set_default_size(560, -1)
+        self.set_default_size(580, -1)
         self.cancel_button = self.add_button("Cancelar", Gtk.ResponseType.CANCEL)
         self.send_button = self.add_button("Enviar ao Jira", Gtk.ResponseType.OK)
         style(self.send_button, "btn", "btn-primary")
         self.set_default_response(Gtk.ResponseType.CANCEL)       # Enter não envia por acidente
 
         box = self.get_content_area()
-        box.set_border_width(16)
-        box.set_spacing(10)
-        box.add(label(f"{TITLES[preview['kind']]} · {preview['issue_key']}", "card-title", wrap=True))
-        box.add(label(EXPLAIN[preview["kind"]], "small", "muted", wrap=True))
+        box.set_border_width(22)
+        box.set_spacing(14)
+        box.add(vbox(hbox(label(TITLES[preview["kind"]], "title-md"), key_chip(preview["issue_key"]), spacing=10),
+                     label(EXPLAIN[preview["kind"]], "small", "muted", wrap=True), spacing=4))
         {push.COMMENT: self._comment, push.STATUS: self._status, push.FIELDS: self._fields,
          push.WORKLOG: self._worklog, push.SUBTASKS: self._subtasks}[preview["kind"]](box)
-        box.add(label("Só isso será enviado, e só agora.", "caption", "faint"))
+        self.footnote = label("Só isso será enviado, e só agora.", "small", "muted")
+        box.add(self.footnote)
         self.show_all()
         self._update_button()
 
@@ -62,7 +90,7 @@ class JiraPushDialog(Gtk.Dialog):
         scroll.set_max_content_height(260)
         scroll.set_propagate_natural_height(True)
         scroll.add(view)
-        box.add(scroll)
+        box.add(vbox(scroll, classes=("card-soft",)))
         self.text_view = view
 
     def _fields(self, box):
@@ -74,7 +102,7 @@ class JiraPushDialog(Gtk.Dialog):
             text = vbox(label(change["label"], "bold"),
                         label(f"No Jira: {change['before'] or '—'}", "small", "muted", wrap=True),
                         label(f"Vai para: {change['after']}", "small", wrap=True), spacing=2)
-            box.add(hbox(check, expand(text), spacing=10, valign=Gtk.Align.START))
+            box.add(_checked_row(check, text))
 
     def _status(self, box):
         box.add(label(f"Agora no Jira: {self.preview['current'] or '—'}", "small", "muted"))
@@ -83,21 +111,32 @@ class JiraPushDialog(Gtk.Dialog):
             radio = Gtk.RadioButton.new_with_label_from_widget(anchor, f"{option['name']}  →  {option['to_status']}")
             radio.connect("toggled", lambda *_: self._update_button())
             self.radios.append((radio, option))
-            box.add(radio)
+            box.add(vbox(radio, classes=("day-row",)))
 
     def _worklog(self, box):
+        total = 0
         for day in self.preview["days"]:
             check = Gtk.CheckButton()
             check.set_active(day["selected"])
-            check.connect("toggled", lambda *_: self._update_button())
+            check.connect("toggled", lambda *_: self._update_total())
             self.day_checks.append((check, day))
-            text = vbox(label(f"{day['day'][8:10]}/{day['day'][5:7]}/{day['day'][:4]} · {format_real(day['seconds'])}",
-                              "bold"),
-                        label(f"{day['sessions']} sessão(ões) · começa às {day['started'][11:16]}", "small", "muted"),
-                        spacing=2)
-            box.add(hbox(check, expand(text), spacing=10, valign=Gtk.Align.START))
+            text = vbox(label(day_title(day["day"]), "bold"),
+                        label(f"{day['sessions']} " + ("sessão" if day["sessions"] == 1 else "sessões")
+                              + f" · começa às {day['started'][11:16]}", "small", "muted"),
+                        spacing=1)
+            amount = label(format_real(day["seconds"]), "title-md", "text-primary")
+            box.add(_checked_row(check, text, amount))
+            total += day["seconds"]
+        self.total_label = label("", "title-md")
+        box.add(hbox(expand(label("Total a lançar", "small", "text2")), self.total_label, spacing=8))
         if self.preview["skipped_seconds"]:
             box.add(label("Ficou de fora o tempo de dias com menos de 1 minuto.", "caption", "muted", wrap=True))
+        self._update_total()
+
+    def _update_total(self):
+        total = sum(day["seconds"] for check, day in self.day_checks if check.get_active())
+        self.total_label.set_text(format_real(total) if total else "—")
+        self._update_button()
 
     def _subtasks(self, box):
         types = self.preview["types"]
@@ -118,7 +157,7 @@ class JiraPushDialog(Gtk.Dialog):
             check.connect("toggled", lambda *_: self._update_button())
             self.sub_checks.append((check, item))
             estimate = f" · previsão {item['estimate_min']} min" if item["estimate_min"] else ""
-            box.add(hbox(check, expand(label(item["title"] + estimate, wrap=True)), spacing=10))
+            box.add(_checked_row(check, label(item["title"] + estimate, wrap=True)))
 
     def _update_button(self):
         kind = self.preview["kind"]
@@ -179,18 +218,19 @@ class JiraPullDialog(Gtk.Dialog):
         self.import_button = self.add_button("Trazer", Gtk.ResponseType.OK)
         style(self.import_button, "btn", "btn-primary")
         box = self.get_content_area()
-        box.set_border_width(16)
-        box.set_spacing(8)
-        box.add(label(f"Sub-tarefas de {issue_key} que ainda não estão aqui", "card-title", wrap=True))
-        box.add(label("Viram subtarefas locais ligadas à do Jira. Nada é alterado no Jira.", "small", "muted", wrap=True))
+        box.set_border_width(22)
+        box.set_spacing(10)
+        box.add(vbox(hbox(label("Trazer subtarefas", "title-md"), key_chip(issue_key), spacing=10),
+                     label("Viram subtarefas locais ligadas à do Jira. Nada é alterado no Jira.", "small", "muted",
+                           wrap=True), spacing=4))
         for item in found:
             check = Gtk.CheckButton()
             check.set_active(True)
             check.connect("toggled", lambda *_: self.import_button.set_sensitive(
                 any(c.get_active() for c, _i in self.checks)))
             self.checks.append((check, item))
-            box.add(hbox(check, label(f"{item['key']} · {item['title']}" + ("  (concluída)" if item["done"] else ""),
-                                      wrap=True), spacing=10))
+            text = label(f"{item['key']} · {item['title']}" + ("  (concluída)" if item["done"] else ""), wrap=True)
+            box.add(_checked_row(check, text))
         self.show_all()
 
     def chosen(self):

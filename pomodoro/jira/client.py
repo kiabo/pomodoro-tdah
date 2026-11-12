@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 # Minhas, criadas por mim ou ainda sem responsável (muita coisa útil fica sem responsável no Jira).
 DEFAULT_JQL = ("(assignee = currentUser() OR reporter = currentUser() OR assignee is EMPTY) "
                "AND resolution = Unresolved ORDER BY updated DESC")
+ASSIGNED_JQL = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
+SCOPES = ("mine", "assigned", "custom")
 SEARCH_FIELDS = ["summary", "description", "status", "project", "timetracking", "updated", "issuetype", "parent"]
 PAGE_SIZE = 100
 MAX_PAGES = 10
@@ -29,6 +31,15 @@ MAX_WAIT_SECONDS = 30    # espera máxima aceita por tentativa; acima disso, des
 
 class JiraError(Exception):
     """O Jira não está disponível (configuração incompleta, rede, credenciais ou resposta inválida)."""
+
+
+def jql_for(scope, custom=""):
+    """A busca do escopo escolhido nas configurações: mine (padrão) | assigned | custom (a JQL do usuário)."""
+    if scope == "assigned":
+        return ASSIGNED_JQL
+    if scope == "custom" and (custom or "").strip():
+        return custom.strip()
+    return DEFAULT_JQL
 
 
 def normalize_url(url):

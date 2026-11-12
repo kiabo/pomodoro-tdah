@@ -61,7 +61,8 @@ DEFAULT_SETTINGS = {
     "jira_url": "",                    # https://empresa.atlassian.net
     "jira_email": "",
     "jira_token": "",                  # token da API; se vazio, usa a variável JIRA_API_TOKEN
-    "jira_jql": "",                    # vazio = minhas issues em aberto
+    "jira_scope": "mine",              # mine = minhas + criadas por mim + sem responsável | assigned | custom
+    "jira_jql": "",                    # a busca do escopo "custom"
     "jira_auto_sync_min": 0,           # 0 = desligada; senão atualiza o espelho (só leitura) a cada N min
     "jira_project_groups": {},         # {chave do projeto: id do grupo} lembrado entre importações
     "jira_epic_groups": {},            # {chave do épico: id do grupo}: cada épico do Jira vira um grupo
@@ -95,6 +96,8 @@ def _valid(key, value):
         return isinstance(value, list) and all(v in COMPACT_FIELDS for v in value)
     if key == "compact_idle_opacity":
         return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.2 <= value <= 1.0
+    if key == "jira_scope":
+        return value in ("mine", "assigned", "custom")
     if key in ("jira_project_groups", "jira_epic_groups"):
         return isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
     if key == "ai_model":
@@ -124,6 +127,8 @@ def sanitize(data):
         for key, value in data.items():
             if key in DEFAULT_SETTINGS and _valid(key, value):
                 settings[key] = _copy(value)
+        if "jira_scope" not in data and settings["jira_jql"].strip():
+            settings["jira_scope"] = "custom"        # quem já tinha uma busca própria continua com ela
     return settings
 
 

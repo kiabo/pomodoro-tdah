@@ -135,7 +135,8 @@ def link_sample_jira(controller):
         report["id"], "FIN-142", project_key="FIN", url="https://empresa.atlassian.net/browse/FIN-142",
         remote_title="Relatório mensal de custos", remote_status="Em andamento",
         remote_description="Consolidar os custos do mês e enviar ao financeiro até sexta.",
-        remote_estimate_min=120, remote_updated="2026-11-10T10:00:00.000-0300")
+        remote_estimate_min=120, remote_updated="2026-11-10T10:00:00.000-0300", issue_type="Tarefa",
+        epic_key="DDSG-43")
     controller._changed()
     return report
 

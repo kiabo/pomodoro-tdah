@@ -50,9 +50,11 @@ class JiraUiTest(JiraUiCase):
         page = SettingsPage(self.controller)
         self.assertEqual(page.jira_entries["jira_url"].get_text(), "https://x.atlassian.net")
         self.assertFalse(page.jira_entries["jira_token"].get_visibility())
+        self.assertIn("Ainda não testada", page.jira_pill.get_text())
         page.jira_entries["jira_jql"].set_text("project = ABC")
         page._on_jira_test()
-        self.assertEqual(page.jira_status.get_text(), "✓ Conectado como Fabiano.")
+        self.assertEqual(page.jira_pill.get_text(), "● Conectado como Fabiano")
+        self.assertTrue(page.jira_pill.get_style_context().has_class("conn-ok"))
         self.assertEqual(self.controller.settings["jira_jql"], "project = ABC")
         self.assertTrue(page.jira_test_button.get_sensitive())
 
@@ -61,22 +63,34 @@ class JiraUiTest(JiraUiCase):
         page = SettingsPage(self.controller)
         page._on_jira_test()
         self.assertIn("recusou", page.jira_status.get_text())
+        self.assertTrue(page.jira_pill.get_style_context().has_class("conn-error"))
 
-    def test_import_dialog_lists_issues_and_groups(self):
+    def test_import_dialog_groups_by_project_collapsed_and_counts_items(self):
         items, error = self.preview()
         self.assertIsNone(error)
         dialog = JiraImportDialog(None, self.controller, items)
         self.addCleanup(dialog.destroy)
         texts = labels(dialog.get_content_area())
-        self.assertTrue(any("2 novas" in t for t in texts))
-        self.assertIn("ABC-1", texts)
+        self.assertTrue(any("2 tarefas novas" in t for t in texts))
+        self.assertIn("Sem épico · projeto ABC", texts)
         self.assertEqual(list(dialog.group_selects), ["ABC"])
-        self.assertTrue(dialog.import_button.get_sensitive())
+        block = dialog.blocks[0]
+        self.assertFalse(block.body.get_visible())                       # começa recolhido
+        block.toggle.clicked()
+        self.assertTrue(block.body.get_visible())
+        self.assertTrue(all(c.get_visible() for c in dialog.checks.values()))      # as linhas aparecem de fato
+        block.toggle.clicked()
+        self.assertFalse(block.body.get_visible())
+        block.toggle.clicked()
+        self.assertEqual(dialog.import_button.get_label(), "Importar 2 itens")
         dialog.checks["ABC-2"].set_active(False)
+        self.assertEqual(dialog.import_button.get_label(), "Importar 1 item")
+        self.assertTrue(block.header_check.get_inconsistent())           # marcado pela metade
         self.assertEqual([i.issue["key"] for i in dialog.selected_items()], ["ABC-1"])
-        for check in dialog.checks.values():
-            check.set_active(False)
+        block.header_check.set_active(False)
         self.assertFalse(dialog.import_button.get_sensitive())
+        block.header_check.set_active(True)
+        self.assertEqual(dialog.import_button.get_label(), "Importar 2 itens")
 
     def test_task_list_shows_badge_and_editor_shows_card(self):
         task_id = self.import_all()
@@ -227,7 +241,9 @@ class JiraJ4UiTest(JiraUiCase):
         preview = self.controller.jira_prepare_worklog(self.task_id)
         dialog = push_dialog.JiraPushDialog(None, preview)
         self.addCleanup(dialog.destroy)
-        self.assertTrue(any("09/11/2026" in t for t in labels(dialog.get_content_area())))
+        self.assertTrue(any("Segunda, 9 de novembro" in t for t in labels(dialog.get_content_area())))
+        self.assertEqual(dialog.total_label.get_text(), "25m")
+        self.assertTrue(any("1 sessão ·" in t for t in labels(dialog.get_content_area())))
         self.assertTrue(dialog.send_button.get_sensitive())
         dialog.day_checks[0][0].set_active(False)
         self.assertFalse(dialog.send_button.get_sensitive())
@@ -300,14 +316,14 @@ class JiraJ5UiTest(JiraUiCase):
 
     def test_settings_auto_sync_choice_is_saved_and_status_shown(self):
         page = SettingsPage(self.controller)
-        self.assertEqual(page.jira_auto_select.value, 0)
-        page._apply({"jira_auto_sync_min": 30})
+        self.assertEqual(page.jira_auto_group.value, 0)
+        page.jira_auto_group.set_value(30, emit=True)
         self.assertEqual(self.controller.settings["jira_auto_sync_min"], 30)
-        self.assertEqual(page.jira_sync_label.get_text(), "")
+        self.assertIn("Ainda não atualizou", page.jira_sync_label.get_text())
         self.fake.pages = [[raw_issue("ABC-1"), raw_issue("ABC-9")]]
         self.controller.jira_auto_sync()
         page.refresh_jira_status()
-        self.assertIn("1 nova(s) para importar", page.jira_sync_label.get_text())
+        self.assertIn("1 issue(s) nova(s) esperando", page.jira_sync_label.get_text())
         self.fake.status = 401
         self.controller.jira_auto_sync()
         page.refresh_jira_status()
@@ -351,7 +367,7 @@ class JiraJ5UiTest(JiraUiCase):
 
 
 class JiraHierarchyUiTest(JiraUiCase):
-    def test_dialog_announces_epic_groups_and_hides_project_choice_for_epic_children(self):
+    def test_import_dialog_one_collapsed_block_per_epic(self):
         self.fake.pages = [[
             raw_issue("ABC-10", summary="Plataforma", issue_type="Epic", level=1),
             raw_issue("ABC-11", summary="Tarefa A", parent="ABC-10", parent_title="Plataforma"),
@@ -362,17 +378,139 @@ class JiraHierarchyUiTest(JiraUiCase):
         dialog = JiraImportDialog(None, self.controller, items)
         self.addCleanup(dialog.destroy)
         texts = labels(dialog.get_content_area())
-        self.assertTrue(any("Cada épico vira um grupo: Plataforma" in t for t in texts))
-        self.assertTrue(any("2 novas" in t for t in texts))                  # as tarefas; o épico não conta
-        self.assertEqual(list(dialog.group_selects), ["XYZ"])                # só a tarefa sem épico escolhe grupo
-        self.assertTrue(any("subtarefa" in t for t in texts))
+        self.assertIn("Plataforma", texts)
+        self.assertIn("ÉPICO · VIRA GRUPO NOVO", texts)
+        self.assertEqual([b.kind for b in dialog.blocks], ["epic", "project"])
+        self.assertTrue(all(not b.body.get_visible() for b in dialog.blocks))      # tudo recolhido
+        self.assertEqual(list(dialog.group_selects), ["XYZ"])                      # só quem não tem épico escolhe grupo
+        self.assertEqual(dialog.import_button.get_label(), "Importar 3 itens")     # tarefa + subtarefa + solta
+        self.assertEqual({i.issue["key"] for i in dialog.blocks[0].children}, {"ABC-11", "ABC-12"})
+        dialog.blocks[0].header_check.set_active(False)                            # desmarca o épico inteiro
+        chosen = {i.issue["key"] for i in dialog.selected_items()}
+        self.assertEqual(chosen, {"XYZ-1"})                                        # sem filhas, o grupo não é criado
+        dialog.blocks[0].header_check.set_active(True)
+        chosen = {i.issue["key"] for i in dialog.selected_items()}
+        self.assertEqual(chosen, {"ABC-10", "ABC-11", "ABC-12", "XYZ-1"})
         self.controller.jira_import(dialog.items, dialog.group_choices())
         task_id = self.repo.jira_link_by_key("ABC-11")["task_id"]
         editor = TaskEditorPage(self.controller)
         self.addCleanup(editor.destroy)
         editor.load(task_id)
-        self.assertIn("épico ABC-10", editor.jira_status_label.get_text())
+        self.assertIn("épico ABC-10", editor.jira_epic_label.get_text())
         self.assertEqual([r.jira_badge.get_text() for r in editor.sub_rows_box.get_children()], ["ABC-12"])
+
+    def test_import_dialog_changes_block_is_open_and_known_epic_is_tagged(self):
+        self.fake.pages = [[raw_issue("ABC-11", summary="Tarefa A", parent="ABC-10", parent_title="Plataforma")]]
+        items, _ = self.preview()
+        self.controller.jira_import(items)
+        self.fake.pages = [[raw_issue("ABC-11", summary="Tarefa A", status="Em andamento", parent="ABC-10",
+                                      parent_title="Plataforma"),
+                            raw_issue("ABC-13", summary="Outra", parent="ABC-10", parent_title="Plataforma")]]
+        items, _ = self.preview()
+        dialog = JiraImportDialog(None, self.controller, items)
+        self.addCleanup(dialog.destroy)
+        texts = labels(dialog.get_content_area())
+        self.assertIn("ÉPICO · GRUPO JÁ EXISTE", texts)
+        changes = next(b for b in dialog.blocks if b.kind == "changes")
+        self.assertTrue(changes.body.get_visible())
+        self.assertIn("Já importadas, com mudanças no Jira", texts)
+        self.assertEqual(dialog.import_button.get_label(), "Importar 2 itens")
+
+    def test_import_dialog_with_nothing_new(self):
+        self.controller.jira_import(self.preview()[0])
+        self.fake.pages = [[raw_issue("ABC-1", description="Corpo da issue"), raw_issue("ABC-2", seconds=None)]]
+        items, _ = self.preview()
+        dialog = JiraImportDialog(None, self.controller, items)
+        self.addCleanup(dialog.destroy)
+        self.assertEqual(dialog.blocks, [])
+        self.assertTrue(dialog.empty_label.get_visible())
+        self.assertFalse(dialog.import_button.get_sensitive())
+
+
+class JiraMenuUiTest(JiraUiCase):
+    def setUp(self):
+        super().setUp()
+        self.task_id = self.import_all()
+        self.fake.calls.clear()
+        self.editor = TaskEditorPage(self.controller)
+        self.addCleanup(self.editor.destroy)
+        self.editor.load(self.task_id)
+
+    def items(self):
+        return {item["title"]: (widget, item) for widget, item in self.editor.jira_menu.items}
+
+    def test_menu_has_the_six_actions_in_two_sections(self):
+        items = self.items()
+        self.assertEqual(list(items), [
+            "Comentar com as minhas notas", "Atualizar título e previsão", "Mudar status…", "Lançar tempo",
+            "Criar subtarefas no Jira", "Trazer subtarefas de lá"])
+        comment, _ = items["Comentar com as minhas notas"]
+        self.assertFalse(comment.get_sensitive())                                    # sem notas, não há o que enviar
+        self.assertIn("Hoje no Jira: To Do", items["Mudar status…"][1]["sub"])
+
+    def test_badges_follow_the_data(self):
+        self.repo.update_task(self.task_id, notes="plano", title="Meu título")
+        self.controller.add_subtask(self.task_id, "Passo A")
+        self.controller.add_subtask(self.task_id, "Passo B")
+        with self.controller.conn:
+            self.controller.conn.execute(
+                "INSERT INTO sessions(task_id, kind, started_at, ended_at, seconds) "
+                "VALUES (?, 'work', '2026-11-09T09:00:00', '2026-11-09T09:25:00', 1500)", (self.task_id,))
+        self.editor.load(self.task_id)
+        items = self.items()
+        self.assertTrue(items["Comentar com as minhas notas"][0].get_sensitive())
+        self.assertEqual(items["Atualizar título e previsão"][1]["badge"], "1 diferença(s)")
+        self.assertEqual(items["Lançar tempo"][1]["badge"], "25m novos")
+        self.assertEqual(items["Criar subtarefas no Jira"][1]["badge"], "2 locais")
+        self.assertIsNone(items["Trazer subtarefas de lá"][1].get("badge"))
+
+    def test_choosing_an_item_only_opens_the_confirmation_never_sends(self):
+        self.repo.update_task(self.task_id, notes="plano")
+        self.editor.load(self.task_id)
+        _widget, item = self.items()["Comentar com as minhas notas"]
+        with mock.patch.object(push_dialog, "ask_push", return_value=None) as ask:
+            item["callback"]()
+        self.assertEqual(ask.call_args.args[1]["kind"], "comment")
+        self.assertEqual([c for c in self.fake.calls if c["method"] in ("POST", "PUT")], [])
+
+    def test_notice_has_banner_colors(self):
+        self.editor.notice("Enviado para ABC-1.")
+        context = self.editor.notice_label.get_style_context()
+        self.assertTrue(context.has_class("banner-green") and not context.has_class("banner-red"))
+        self.editor.notice("O Jira recusou.", error=True)
+        self.assertTrue(context.has_class("banner-red") and not context.has_class("banner-green"))
+
+    def test_missing_issue_shows_gray_banner(self):
+        self.repo.save_jira_link(self.task_id, "ABC-1", missing=1)
+        self.editor.load(self.task_id)
+        self.assertTrue(any("saiu da sua lista" in t for t in labels(self.editor.jira_conflicts_box)))
+
+    def test_description_is_collapsed_until_asked(self):
+        self.assertFalse(self.editor.jira_description_revealer.get_reveal_child())
+        self.editor._toggle_jira_description()
+        self.assertTrue(self.editor.jira_description_revealer.get_reveal_child())
+        self.assertIn("Ocultar", self.editor.jira_desc_toggle.get_label())
+
+    def test_settings_scope_choice_and_custom_field(self):
+        page = SettingsPage(self.controller)
+        self.assertEqual(page.jira_scope.value, "mine")
+        self.assertFalse(page.jira_jql_field.get_visible())
+        page.jira_scope.set_value("custom", emit=True)
+        self.assertTrue(page.jira_jql_field.get_visible())
+        self.assertEqual(self.controller.settings["jira_scope"], "custom")
+        page.jira_scope.set_value("assigned", emit=True)
+        self.assertFalse(page.jira_jql_field.get_visible())
+        self.assertEqual(self.controller.settings["jira_scope"], "assigned")
+
+    def test_banner_widget_validates_kind(self):
+        from pomodoro.ui.widgets import banner
+        with self.assertRaises(ValueError):
+            banner("roxo", "x")
+        clicked = []
+        widget = banner("amber", "Título", "texto", [("Ok", lambda: clicked.append(1))])
+        button = [w for w in walk(widget) if isinstance(w, Gtk.Button)][0]
+        button.clicked()
+        self.assertEqual(clicked, [1])
 
 
 if __name__ == "__main__":

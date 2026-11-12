@@ -19,7 +19,7 @@ from .ai import analysis as ai_analysis, summary as ai_summary
 from .ai.claude_client import AIUnavailable, ClaudeClient
 from .ai.estimator import Estimator
 from .jira import importer as jira_importer, push as jira_push
-from .jira.client import JiraClient, JiraError
+from .jira.client import JiraClient, JiraError, jql_for
 from . import db, export, groups as groups_model, planning, settings as settings_store, today as today_model
 from .repository import Repository
 from .timer import PHASE_LABELS, Phase, PomodoroTimer
@@ -622,7 +622,7 @@ class Controller:
 
     def jira_preview(self, done):
         """Busca as minhas issues e compara com o que já existe. done(itens, erro). Não grava nada."""
-        jql = self.settings["jira_jql"]
+        jql = jql_for(self.settings["jira_scope"], self.settings["jira_jql"])
 
         def search(client):
             issues = client.search(jql)
@@ -755,6 +755,21 @@ class Controller:
             except ValueError as problem:
                 done(None, str(problem))
         self._jira_call(lambda client: client.transitions(link["issue_key"]), fetched)
+
+    def jira_menu_info(self, task_id):
+        """O que o menu "Enviar ao Jira" mostra de cada ação (selos e o que está disponível). Só lê o banco."""
+        task, link = self._linked(task_id)
+        try:
+            unlogged = sum(d["seconds"] for d in self.jira_prepare_worklog(task_id)["days"])
+        except ValueError:
+            unlogged = 0
+        try:
+            differences = len(jira_push.fields_preview(task, link)["changes"])
+        except ValueError:
+            differences = 0
+        return {"has_notes": bool((task["notes"] or "").strip()), "unlogged_seconds": unlogged,
+                "field_differences": differences,
+                "local_subtasks": len([s for s in self.repo.list_subtasks(task_id) if not s["jira_key"]])}
 
     def jira_prepare_worklog(self, task_id):
         task, link = self._linked(task_id)
